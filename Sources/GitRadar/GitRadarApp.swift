@@ -42,13 +42,13 @@ struct GitRadarApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command])
 
-                Button("批量 Fetch 所有远程仓库") {
-                    Task { await store.batchFetchAllVisible() }
+                Button("批量 Fetch 所有远程仓库（三次确认）") {
+                    store.requestBatchFetchAllVisible()
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
 
-                Button("批量 Pull 待更新仓库") {
-                    Task { await store.batchPullAllBehind() }
+                Button("批量 Pull 待更新仓库（三次确认）") {
+                    store.requestBatchPullAllBehind()
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
 

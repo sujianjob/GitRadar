@@ -128,6 +128,16 @@ enum GitService {
             .split(whereSeparator: \.isNewline)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 
+        // 解析 README 简介与项目图标、技术栈
+        let readmeInfo = ProjectMetadataInspector.extractReadme(at: path)
+        let techStack = ProjectMetadataInspector.detectTechStack(at: path)
+        let iconResolution = ProjectMetadataInspector.resolveProjectIcon(
+            repoPath: path,
+            primaryProvider: primaryProvider,
+            primaryRemoteSlug: primarySlug,
+            readmeRaw: readmeInfo.rawText
+        )
+
         return GitRepository(
             name: name,
             path: path,
@@ -148,6 +158,12 @@ enum GitService {
             primaryWebURL: primaryWebURL,
             primaryRemoteSlug: primarySlug,
             primaryHost: primaryHost,
+            projectIconPath: iconResolution.localIconPath,
+            remoteAvatarURL: iconResolution.remoteAvatarURL,
+            techStack: techStack,
+            readmeFileName: readmeInfo.fileName,
+            readmeExcerpt: readmeInfo.excerpt,
+            readmeFullText: readmeInfo.fullText,
             lastCommitHash: latestCommit?.shortHash,
             lastCommitMessage: latestCommit?.subject,
             lastCommitAuthor: latestCommit?.author,

@@ -1,6 +1,50 @@
 import Foundation
 import SwiftUI
 
+// MARK: - 项目主要技术栈识别（用于为无图片仓库生成差异化专属图标）
+enum ProjectTechStack: String, Codable, CaseIterable, Hashable {
+    case swift = "Swift"
+    case python = "Python"
+    case typescript = "TypeScript"
+    case javascript = "Node.js"
+    case rust = "Rust"
+    case golang = "Go"
+    case javaKotlin = "JVM"
+    case aiSkill = "AI Skill"
+    case docs = "Docs"
+    case generic = "Git"
+
+    var shortTag: String {
+        switch self {
+        case .swift: return "SW"
+        case .python: return "PY"
+        case .typescript: return "TS"
+        case .javascript: return "JS"
+        case .rust: return "RS"
+        case .golang: return "GO"
+        case .javaKotlin: return "JV"
+        case .aiSkill: return "AI"
+        case .docs: return "MD"
+        case .generic: return "GIT"
+        }
+    }
+
+    var sfSymbol: String {
+        switch self {
+        case .swift: return "swift"
+        case .python: return "terminal.fill"
+        case .typescript: return "curlybraces.square.fill"
+        case .javascript: return "shippingbox.fill"
+        case .rust: return "gearshape.2.fill"
+        case .golang: return "cpu.fill"
+        case .javaKotlin: return "cup.and.saucer.fill"
+        case .aiSkill: return "wand.and.stars"
+        case .docs: return "book.closed.fill"
+        case .generic: return "chevron.left.forwardslash.chevron.right"
+        }
+    }
+}
+
 // MARK: - Git 托管平台枚举（支持全平台，不止 GitHub）
 enum GitProvider: String, Codable, CaseIterable, Identifiable, Hashable {
     case github = "GitHub"
@@ -14,41 +58,29 @@ enum GitProvider: String, Codable, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
-    var iconName: String {
-        switch self {
-        case .github: return "chevron.left.forwardslash.chevron.right"
-        case .gitlab: return " fox.fill" // fallback handled via symbol
-        case .gitee: return "g.circle.fill"
-        case .bitbucket: return "tray.full.fill"
-        case .codeberg: return "mountain.2.fill"
-        case .cnb: return "cloud.fill"
-        case .selfHosted: return "server.rack"
-        case .localOnly: return "internaldrive"
-        }
-    }
-
     var sfSymbol: String {
         switch self {
-        case .github: return "globe.americas.fill"
-        case .gitlab: return "flame.fill"
-        case .gitee: return "g.circle.fill"
-        case .bitbucket: return "cylinder.split.1x2.fill"
-        case .codeberg: return "mountain.2.fill"
-        case .cnb: return "cloud.fill"
+        case .github: return "chevron.left.forwardslash.chevron.right"
+        case .gitlab: return "flame"
+        case .gitee: return "g.circle"
+        case .bitbucket: return "cylinder.split.1x2"
+        case .codeberg: return "mountain.2"
+        case .cnb: return "cloud"
         case .selfHosted: return "server.rack"
-        case .localOnly: return "desktopcomputer"
+        case .localOnly: return "folder"
         }
     }
 
+    // 克制的石墨灰/岩石色系（去除刺眼彩虹色）
     var badgeColor: Color {
         switch self {
-        case .github: return Color(red: 0.35, green: 0.45, blue: 0.95)
-        case .gitlab: return Color(red: 0.95, green: 0.42, blue: 0.15)
-        case .gitee: return Color(red: 0.85, green: 0.18, blue: 0.20)
-        case .bitbucket: return Color(red: 0.15, green: 0.52, blue: 1.0)
-        case .codeberg: return Color(red: 0.20, green: 0.68, blue: 0.55)
-        case .cnb: return Color(red: 0.95, green: 0.58, blue: 0.12)
-        case .selfHosted: return Color.purple
+        case .github: return Color(red: 0.34, green: 0.44, blue: 0.56)
+        case .gitlab: return Color(red: 0.68, green: 0.42, blue: 0.28)
+        case .gitee: return Color(red: 0.66, green: 0.32, blue: 0.34)
+        case .bitbucket: return Color(red: 0.28, green: 0.48, blue: 0.68)
+        case .codeberg: return Color(red: 0.28, green: 0.54, blue: 0.46)
+        case .cnb: return Color(red: 0.62, green: 0.48, blue: 0.26)
+        case .selfHosted: return Color(red: 0.46, green: 0.42, blue: 0.58)
         case .localOnly: return Color.secondary
         }
     }
@@ -87,25 +119,25 @@ enum RepoHealthState: String, Codable, CaseIterable, Hashable {
 
     var color: Color {
         switch self {
-        case .conflict: return .red
-        case .dirty: return .orange
-        case .diverged: return .purple
-        case .ahead: return .blue
-        case .behind: return .cyan
-        case .clean: return .green
-        case .localOnly: return .gray
+        case .conflict: return AppTheme.statusDanger
+        case .dirty: return AppTheme.statusDirty
+        case .diverged: return AppTheme.statusDanger
+        case .ahead: return AppTheme.statusSync
+        case .behind: return AppTheme.statusSync
+        case .clean: return AppTheme.statusClean
+        case .localOnly: return AppTheme.statusNeutral
         }
     }
 
     var sfSymbol: String {
         switch self {
         case .conflict: return "exclamationmark.triangle.fill"
-        case .dirty: return "pencil.circle.fill"
+        case .dirty: return "circle.fill"
         case .diverged: return "arrow.triangle.branch"
         case .ahead: return "arrow.up.circle.fill"
         case .behind: return "arrow.down.circle.fill"
         case .clean: return "checkmark.circle.fill"
-        case .localOnly: return "internaldrive.fill"
+        case .localOnly: return "circle.dotted"
         }
     }
 
@@ -162,21 +194,21 @@ struct ChangedFile: Identifiable, Hashable, Codable {
     }
 
     var badgeColor: Color {
-        if isConflict { return .red }
-        if isUntracked { return .gray }
-        if statusCode.contains("A") { return .green }
-        if statusCode.contains("D") { return .red }
-        if statusCode.contains("R") { return .blue }
-        return .orange
+        if isConflict { return AppTheme.statusDanger }
+        if isUntracked { return AppTheme.statusNeutral }
+        if statusCode.contains("A") { return AppTheme.statusClean }
+        if statusCode.contains("D") { return AppTheme.statusDanger }
+        if statusCode.contains("R") { return AppTheme.statusSync }
+        return AppTheme.statusDirty
     }
 
     var statusDescription: String {
         if isConflict { return "冲突" }
         if isUntracked { return "未跟踪" }
-        if isStaged && workTreeStatus != " " { return "已暂存 + 工作区修改" }
-        if isStaged { return "已暂存 (Staged)" }
-        if workTreeStatus == "M" { return "已修改 (Modified)" }
-        if workTreeStatus == "D" { return "已删除 (Deleted)" }
+        if isStaged && workTreeStatus != " " { return "已暂存 + 修改" }
+        if isStaged { return "已暂存" }
+        if workTreeStatus == "M" { return "已修改" }
+        if workTreeStatus == "D" { return "已删除" }
         return "变更"
     }
 }
@@ -202,15 +234,15 @@ struct RepoGroup: Identifiable, Codable, Hashable {
 
     var color: Color {
         switch colorHex {
-        case "blue": return .blue
-        case "purple": return .purple
-        case "orange": return .orange
-        case "green": return .green
-        case "pink": return .pink
-        case "teal": return .teal
-        case "indigo": return .indigo
-        case "red": return .red
-        default: return .blue
+        case "blue": return Color(red: 0.28, green: 0.48, blue: 0.72)
+        case "purple": return Color(red: 0.48, green: 0.42, blue: 0.68)
+        case "orange": return Color(red: 0.76, green: 0.52, blue: 0.22)
+        case "green": return Color(red: 0.24, green: 0.58, blue: 0.36)
+        case "pink": return Color(red: 0.68, green: 0.36, blue: 0.48)
+        case "teal": return Color(red: 0.24, green: 0.54, blue: 0.58)
+        case "indigo": return Color(red: 0.36, green: 0.44, blue: 0.66)
+        case "red": return Color(red: 0.72, green: 0.28, blue: 0.28)
+        default: return AppTheme.accent
         }
     }
 }
@@ -238,7 +270,7 @@ struct GitRepository: Identifiable, Hashable, Codable {
     let name: String
     let path: String
     let parentPath: String
-    let rootSourcePath: String // 来自哪个扫描根目录（或手动添加）
+    let rootSourcePath: String
 
     // Git 状态
     var currentBranch: String
@@ -258,6 +290,16 @@ struct GitRepository: Identifiable, Hashable, Codable {
     var primaryWebURL: String?
     var primaryRemoteSlug: String?
     var primaryHost: String?
+
+    // 项目专属图标与技术栈
+    var projectIconPath: String?
+    var remoteAvatarURL: String?
+    var techStack: ProjectTechStack
+
+    // README 简介与正文
+    var readmeFileName: String?
+    var readmeExcerpt: String?
+    var readmeFullText: String?
 
     // 最近一次提交
     var lastCommitHash: String?
@@ -304,24 +346,40 @@ struct GitRepository: Identifiable, Hashable, Codable {
         }
         return path
     }
+
+    // 生成两字母项目缩写（用于无图片时的差异化头像展示）
+    var monogram: String {
+        let separators = CharacterSet(charactersIn: "-_ .")
+        let parts = name.components(separatedBy: separators).filter { !$0.isEmpty }
+        if parts.count >= 2 {
+            let first = parts[0].prefix(1).uppercased()
+            let second = parts[1].prefix(1).uppercased()
+            return "\(first)\(second)"
+        }
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.count >= 2 {
+            return String(clean.prefix(2)).uppercased()
+        }
+        return clean.uppercased()
+    }
 }
 
 // MARK: - 侧边栏导航过滤条件
 enum SidebarFilter: Hashable {
     case all
-    case dirty          // 有未提交改动
-    case unpushed       // 待推送 (ahead > 0)
-    case needsPull      // 落后远程 (behind > 0)
-    case favorites      // 收藏项目
+    case dirty
+    case unpushed
+    case needsPull
+    case favorites
     case provider(GitProvider)
     case group(UUID)
     case rootDirectory(String)
 
     var title: String {
         switch self {
-        case .all: return "全部 Git 仓库"
+        case .all: return "全部仓库"
         case .dirty: return "未提交改动"
-        case .unpushed: return "待推送 Commit"
+        case .unpushed: return "待推送提交"
         case .needsPull: return "待拉取更新"
         case .favorites: return "星标收藏"
         case .provider(let p): return p.rawValue
@@ -334,8 +392,8 @@ enum SidebarFilter: Hashable {
 
 // MARK: - 视图与排序枚举
 enum DashboardViewMode: String, Codable, CaseIterable {
-    case grid = "卡片视图"
-    case table = "表格视图"
+    case grid = "卡片"
+    case table = "表格"
 
     var icon: String {
         switch self {
@@ -361,4 +419,17 @@ struct GitActionLog: Identifiable, Hashable {
     let command: String
     let success: Bool
     let output: String
+}
+
+// MARK: - 三次风险确认操作请求模型
+struct PendingGitConfirmation: Identifiable {
+    let id = UUID()
+    let title: String
+    let targetDescription: String
+    let gitCommandPreview: String
+    let step1Warning: String
+    let step2Warning: String
+    let step3Warning: String
+    let isDestructive: Bool
+    let action: @MainActor () async -> Void
 }

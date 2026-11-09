@@ -5,8 +5,8 @@ struct RepoDetailView: View {
     @ObservedObject var store: RadarStore
 
     enum InspectorTab: String, CaseIterable {
-        case changes = "变更与 Diff"
-        case commits = "最近提交"
+        case changes = "工作区变更"
+        case commits = "提交记录"
         case remotes = "远程与分支"
     }
 
@@ -17,6 +17,7 @@ struct RepoDetailView: View {
     @State private var commitMessage: String = ""
     @State private var showNewBranchPopover: Bool = false
     @State private var newBranchName: String = ""
+    @State private var isReadmeExpanded: Bool = false
 
     var isBusy: Bool {
         store.busyRepoIDs.contains(repo.id)
@@ -24,34 +25,38 @@ struct RepoDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // MARK: 1. 顶部仓库概览头
+            // MARK: 1. 紧凑头部（项目真实图标 + 名称 + 外部打开工具栏 + 分支与同步操作栏）
             headerSection
-                .padding(16)
-                .background(Color(nsColor: .windowBackgroundColor))
-
-            Divider()
-
-            // MARK: 2. 外部工具联动与 Git 快捷操作栏
-            actionToolbar
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color.secondary.opacity(0.05))
+                .padding(.vertical, 12)
+                .background(AppTheme.canvasBackground)
 
             Divider()
 
-            // MARK: 3. 标签页切换器
-            Picker("", selection: $selectedTab) {
-                Text("变更与 Diff (\(repo.changedFiles.count))").tag(InspectorTab.changes)
-                Text("最近提交 (\(repo.recentCommits.count))").tag(InspectorTab.commits)
-                Text("远程与分支 (\(repo.remotes.count))").tag(InspectorTab.remotes)
+            // MARK: 2. 上方核心展示区：项目简介（截取 README 前面核心简介，支持展开全文）
+            readmeOverviewSection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(AppTheme.cardBackground)
+
+            Divider()
+
+            // MARK: 3. 下方工作区：变更 Diff / 提交历史 / 远程与分支
+            HStack {
+                Picker("", selection: $selectedTab) {
+                    Text("工作区变更 (\(repo.changedFiles.count))").tag(InspectorTab.changes)
+                    Text("提交历史 (\(repo.recentCommits.count))").tag(InspectorTab.commits)
+                    Text("远程与分支 (\(repo.remotes.count))").tag(InspectorTab.remotes)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
+            .background(AppTheme.canvasBackground)
 
             Divider()
 
-            // MARK: 4. 标签页主体内容
             Group {
                 switch selectedTab {
                 case .changes:
@@ -65,6 +70,7 @@ struct RepoDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: repo.id) { _, _ in
+            isReadmeExpanded = false
             selectedFile = repo.changedFiles.first
             loadSelectedFileDiff()
         }
@@ -84,41 +90,34 @@ struct RepoDetailView: View {
         }
     }
 
-    // MARK: - 1. Header
+    // MARK: - 1. 紧凑头部与快捷栏
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(repo.primaryProvider.badgeColor.opacity(0.16))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: repo.primaryProvider.sfSymbol)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(repo.primaryProvider.badgeColor)
-                }
+                ProjectAvatarView(repo: repo, size: 40)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(repo.name)
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 16, weight: .bold))
                             .lineLimit(1)
 
-                        Text(repo.primaryProvider.rawValue)
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(repo.primaryProvider.badgeColor.opacity(0.15)))
-                            .foregroundStyle(repo.primaryProvider.badgeColor)
+                        Text(repo.techStack.rawValue)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(AppTheme.subtleSurface))
+                            .foregroundStyle(.secondary)
 
                         if isBusy {
                             ProgressView()
-                                .controlSize(.small)
+                                .controlSize(.mini)
                         }
                     }
 
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Text(repo.displayPath)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -128,28 +127,26 @@ struct RepoDetailView: View {
                             store.showBanner("已复制路径：\(repo.path)")
                         } label: {
                             Image(systemName: "doc.on.doc")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9.5))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("复制完整本地路径")
+                        .help("复制本地路径")
                     }
                 }
 
                 Spacer()
 
-                // 收藏按钮
                 Button {
                     store.toggleFavorite(for: repo.id)
                 } label: {
                     Image(systemName: repo.isFavorite ? "star.fill" : "star")
-                        .font(.system(size: 15))
-                        .foregroundStyle(repo.isFavorite ? .yellow : .secondary)
+                        .font(.system(size: 14))
+                        .foregroundStyle(repo.isFavorite ? AppTheme.statusDirty : .secondary)
                 }
                 .buttonStyle(.plain)
-                .help(repo.isFavorite ? "取消星标收藏" : "设为星标收藏")
+                .help("星标收藏")
 
-                // 分组管理下拉
                 Menu {
                     ForEach(store.groups) { grp in
                         let selected = repo.groupIDs.contains(grp.id)
@@ -163,26 +160,28 @@ struct RepoDetailView: View {
                     Button {
                         store.showNewGroupSheet = true
                     } label: {
-                        Label("新建虚拟分组...", systemImage: "plus.circle")
+                        Label("新建分组...", systemImage: "plus")
                     }
                 } label: {
-                    Label("分组", systemImage: "tag")
-                        .font(.caption)
+                    Image(systemName: "tag")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .help("归入虚拟分组")
             }
 
-            // 外部启动器按钮栏（IDE / 终端 / Finder / 远程网页）
-            HStack(spacing: 8) {
+            // 外部工具打开 + 分支与 Git 同步合并在一行紧凑工具条
+            HStack(spacing: 6) {
                 if let editor = store.preferredEditor {
                     Button {
                         ExternalLauncher.openRepository(path: repo.path, with: editor)
                     } label: {
-                        Label("用 \(editor.name) 打开", systemImage: editor.sfSymbol)
+                        Label(editor.name, systemImage: editor.sfSymbol)
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
 
@@ -197,11 +196,10 @@ struct RepoDetailView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10))
+                            .font(.system(size: 9))
                     }
                     .menuStyle(.borderlessButton)
-                    .frame(width: 18)
-                    .help("选择其他已安装的 IDE 打开")
+                    .frame(width: 14)
                 }
 
                 if let term = store.preferredTerminal {
@@ -218,192 +216,224 @@ struct RepoDetailView: View {
                 Button {
                     ExternalLauncher.openInFinder(path: repo.path)
                 } label: {
-                    Label("Finder", systemImage: "folder")
-                        .font(.system(size: 11, weight: .medium))
+                    Image(systemName: "folder")
+                        .font(.system(size: 11))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .help("在 Finder 中打开")
 
                 if let webURL = repo.primaryWebURL {
                     Button {
                         ExternalLauncher.openInBrowser(urlString: webURL)
                     } label: {
-                        Label("远程主页", systemImage: "safari")
-                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "safari")
+                            .font(.system(size: 11))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .help("打开远程网页 (\(repo.primaryProvider.rawValue))")
                 }
 
                 Spacer()
-            }
-        }
-    }
 
-    // MARK: - 2. 分支切换与 Git 操作条
-    private var actionToolbar: some View {
-        HStack(spacing: 8) {
-            // 分支切换下拉菜单
-            Menu {
-                Section("切换本地分支") {
-                    ForEach(repo.localBranches, id: \.self) { br in
-                        Button {
-                            guard br != repo.currentBranch else { return }
-                            Task { await store.checkoutBranch(for: repo, branch: br) }
-                        } label: {
-                            HStack {
-                                Text(br)
-                                if br == repo.currentBranch {
-                                    Image(systemName: "checkmark")
+                // 分支切换（三次确认保护）
+                Menu {
+                    Section("切换本地分支（三次确认）") {
+                        ForEach(repo.localBranches, id: \.self) { br in
+                            Button {
+                                guard br != repo.currentBranch else { return }
+                                store.requestCheckoutBranch(for: repo, branch: br)
+                            } label: {
+                                HStack {
+                                    Text(br)
+                                    if br == repo.currentBranch {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                Divider()
-                Button {
-                    showNewBranchPopover = true
+                    Divider()
+                    Button {
+                        showNewBranchPopover = true
+                    } label: {
+                        Label("新建并切换分支...", systemImage: "plus")
+                    }
                 } label: {
-                    Label("基于当前新建分支...", systemImage: "plus.circle")
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 10))
+                        Text(repo.currentBranch)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                    }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(repo.currentBranch)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.08))
-                )
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .popover(isPresented: $showNewBranchPopover) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("新建并切换分支 (git checkout -b)")
-                        .font(.caption.bold())
-                    TextField("新分支名称，如 feat/radar-ui", text: $newBranchName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 220)
-                    HStack {
-                        Spacer()
-                        Button("取消") { showNewBranchPopover = false }
+                .menuStyle(.borderedButton)
+                .controlSize(.small)
+                .fixedSize()
+                .popover(isPresented: $showNewBranchPopover) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("新建并切换分支 (git checkout -b)")
+                            .font(.caption.bold())
+                        TextField("新分支名称，如 feat/new-ui", text: $newBranchName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 220)
+                        HStack {
+                            Spacer()
+                            Button("取消") { showNewBranchPopover = false }
+                                .controlSize(.small)
+                            Button("下一步（三次确认）") {
+                                let name = newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !name.isEmpty else { return }
+                                showNewBranchPopover = false
+                                newBranchName = ""
+                                store.requestCheckoutBranch(for: repo, branch: name, createNew: true)
+                            }
+                            .buttonStyle(.borderedProminent)
                             .controlSize(.small)
-                        Button("创建") {
-                            let name = newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !name.isEmpty else { return }
-                            showNewBranchPopover = false
-                            newBranchName = ""
-                            Task { await store.checkoutBranch(for: repo, branch: name, createNew: true) }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
                     }
+                    .padding(12)
                 }
-                .padding(12)
-            }
 
-            Spacer()
-
-            // Git 同步按钮组
-            Button {
-                Task { await store.refreshRepository(id: repo.id) }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("刷新本地 Git 状态")
-            .disabled(isBusy)
-
-            if !repo.remotes.isEmpty {
-                Button {
-                    Task { await store.fetchRepository(repo) }
-                } label: {
-                    Label("Fetch", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isBusy)
-
-                Button {
-                    Task { await store.pullRepository(repo) }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.down.to.line")
-                        Text(repo.behindCount > 0 ? "Pull (\(repo.behindCount))" : "Pull")
+                if !repo.remotes.isEmpty {
+                    Button("Fetch") {
+                        store.requestFetchRepository(repo)
                     }
-                    .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(repo.behindCount > 0 ? .cyan : nil)
-                .disabled(isBusy)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isBusy)
 
-                Button {
-                    Task { await store.pushRepository(repo) }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.up.to.line")
-                        Text(repo.aheadCount > 0 ? "Push (\(repo.aheadCount))" : "Push")
+                    Button(repo.behindCount > 0 ? "Pull ↓\(repo.behindCount)" : "Pull") {
+                        store.requestPullRepository(repo)
                     }
-                    .font(.system(size: 11, weight: .medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isBusy)
+
+                    Button(repo.aheadCount > 0 ? "Push ↑\(repo.aheadCount)" : "Push") {
+                        store.requestPushRepository(repo)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isBusy)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(repo.aheadCount > 0 ? .blue : nil)
-                .disabled(isBusy)
             }
         }
     }
 
-    // MARK: - 3A. 变更文件列表 + 快捷提交 + 彩色 Diff 预览
+    // MARK: - 2. 上方项目简介（README 摘要截取 + 可展开全文）
+    private var readmeOverviewSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "book.pages")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("项目简介")
+                    .font(.system(size: 12, weight: .semibold))
+                if let fileName = repo.readmeFileName {
+                    Text("(\(fileName))")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let full = repo.readmeFullText, let excerpt = repo.readmeExcerpt, full.count > excerpt.count {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isReadmeExpanded.toggle()
+                        }
+                    } label: {
+                        Text(isReadmeExpanded ? "收起简介" : "展开全文")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if let excerpt = repo.readmeExcerpt, !excerpt.isEmpty {
+                ScrollView {
+                    Text(isReadmeExpanded ? (repo.readmeFullText ?? excerpt) : excerpt)
+                        .font(.system(size: 11.5))
+                        .lineSpacing(3.5)
+                        .foregroundStyle(.primary.opacity(0.86))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: isReadmeExpanded ? 240 : 108)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(AppTheme.subtleSurface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(AppTheme.hairlineBorder, lineWidth: 1)
+                )
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.questionmark")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                    Text("该仓库根目录下暂未检测到 README.md 简介文档")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(AppTheme.subtleSurface)
+                )
+            }
+        }
+    }
+
+    // MARK: - 3A. 变更文件列表 + 快捷提交（含三次确认） + Diff 预览
     private var changesAndDiffTab: some View {
         VStack(spacing: 0) {
             if repo.changedFiles.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.green)
-                    Text("工作区非常干净")
-                        .font(.headline)
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 28))
+                        .foregroundStyle(AppTheme.statusClean)
+                    Text("工作区干净")
+                        .font(.system(size: 13, weight: .semibold))
                     Text("当前没有未提交的修改或未跟踪文件")
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // 快速提交栏
+                // 快速提交栏（接入三次确认）
                 HStack(spacing: 8) {
-                    TextField("输入 Commit Message 快速暂存全部并提交...", text: $commitMessage)
+                    TextField("输入 Commit Message（点击提交将进入三次安全确认）...", text: $commitMessage)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
+                        .font(.system(size: 11.5))
 
                     Button("提交") {
-                        let msg = commitMessage
-                        Task {
-                            if await store.commitAllChanges(for: repo, message: msg, andPush: false) {
-                                commitMessage = ""
-                            }
+                        store.requestCommitAllChanges(
+                            for: repo,
+                            message: commitMessage,
+                            andPush: false
+                        ) {
+                            commitMessage = ""
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
                     .controlSize(.small)
                     .disabled(commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isBusy)
 
                     if !repo.remotes.isEmpty {
                         Button("提交并 Push") {
-                            let msg = commitMessage
-                            Task {
-                                if await store.commitAllChanges(for: repo, message: msg, andPush: true) {
-                                    commitMessage = ""
-                                }
+                            store.requestCommitAllChanges(
+                                for: repo,
+                                message: commitMessage,
+                                andPush: true
+                            ) {
+                                commitMessage = ""
                             }
                         }
                         .buttonStyle(.bordered)
@@ -413,26 +443,25 @@ struct RepoDetailView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Color.secondary.opacity(0.04))
+                .background(AppTheme.subtleSurface)
 
                 Divider()
 
                 VSplitView {
-                    // 上半部分：变更文件列表
                     List(selection: $selectedFile) {
                         ForEach(repo.changedFiles) { file in
                             HStack(spacing: 8) {
                                 Text(file.badgeText)
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .frame(width: 22, height: 18)
+                                    .frame(width: 20, height: 16)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(file.badgeColor.opacity(0.18))
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(file.badgeColor.opacity(0.15))
                                     )
                                     .foregroundStyle(file.badgeColor)
 
                                 Text(file.path)
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(.system(size: 11.5, design: .monospaced))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
 
@@ -452,26 +481,26 @@ struct RepoDetailView: View {
                                 }
                                 Divider()
                                 Button(role: .destructive) {
-                                    Task { await store.discardFile(in: repo, file: file) }
+                                    store.requestDiscardFile(in: repo, file: file)
                                 } label: {
-                                    Label("放弃此文件修改 (Discard)", systemImage: "arrow.uturn.backward")
+                                    Label("放弃此文件修改（需三次确认）", systemImage: "arrow.uturn.backward")
                                 }
                             }
                         }
                     }
-                    .frame(minHeight: 120, idealHeight: 180)
+                    .frame(minHeight: 100, idealHeight: 150)
                     .onChange(of: selectedFile) { _, _ in
                         loadSelectedFileDiff()
                     }
 
-                    // 下半部分：Unified Diff 语法着色预览
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
-                            Image(systemName: "doc.text.magnifyingglass")
-                                .font(.caption)
+                            Image(systemName: "doc.text")
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            Text(selectedFile?.path ?? "选择上方文件预览 Diff")
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            Text(selectedFile?.path ?? "选择上方文件查看 Diff")
+                                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
                             Spacer()
                             if isLoadingDiff {
                                 ProgressView()
@@ -479,8 +508,8 @@ struct RepoDetailView: View {
                             }
                         }
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.secondary.opacity(0.08))
+                        .padding(.vertical, 5)
+                        .background(AppTheme.subtleSurface)
 
                         Divider()
 
@@ -501,7 +530,7 @@ struct RepoDetailView: View {
                         }
                         .background(Color(nsColor: .textBackgroundColor))
                     }
-                    .frame(minHeight: 180)
+                    .frame(minHeight: 150)
                 }
             }
         }
@@ -527,57 +556,55 @@ struct RepoDetailView: View {
         if line.hasPrefix("+++") || line.hasPrefix("---") {
             return .secondary
         } else if line.hasPrefix("+") {
-            return .green
+            return AppTheme.statusClean
         } else if line.hasPrefix("-") {
-            return .red
+            return AppTheme.statusDanger
         } else if line.hasPrefix("@@") {
-            return .cyan
+            return AppTheme.statusSync
         }
         return .primary
     }
 
     private func diffLineBackground(_ line: String) -> Color {
         if line.hasPrefix("+") && !line.hasPrefix("+++") {
-            return Color.green.opacity(0.10)
+            return AppTheme.statusClean.opacity(0.08)
         } else if line.hasPrefix("-") && !line.hasPrefix("---") {
-            return Color.red.opacity(0.10)
+            return AppTheme.statusDanger.opacity(0.08)
         } else if line.hasPrefix("@@") {
-            return Color.cyan.opacity(0.08)
+            return AppTheme.statusSync.opacity(0.06)
         }
         return .clear
     }
 
-    // MARK: - 3B. 最近提交历史
+    // MARK: - 3B. 提交历史
     private var commitsTab: some View {
         List(repo.recentCommits) { commit in
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(commit.shortHash)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.accentColor.opacity(0.14))
+                                .fill(AppTheme.subtleSurface)
                         )
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.secondary)
 
                     if !commit.refs.isEmpty {
                         Text(commit.refs)
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(Color.orange.opacity(0.15))
-                            )
-                            .foregroundStyle(.orange)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(AppTheme.subtleSurface))
+                            .foregroundStyle(AppTheme.statusSync)
                             .lineLimit(1)
                     }
 
                     Spacer()
 
                     Text(commit.relativeDate)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
 
@@ -585,16 +612,11 @@ struct RepoDetailView: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(2)
 
-                HStack {
-                    Image(systemName: "person.circle")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                    Text(commit.author)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
+                Text(commit.author)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
             .contextMenu {
                 Button {
                     ExternalLauncher.copyToPasteboard(commit.hash)
@@ -611,28 +633,27 @@ struct RepoDetailView: View {
         }
     }
 
-    // MARK: - 3C. 远程仓库与分支列表（支持多 Remote 与任意自建 Git）
+    // MARK: - 3C. 远程仓库与分支列表
     private var remotesAndBranchesTab: some View {
         List {
-            Section("远程地址 (Remotes - 支持 GitHub / GitLab / Gitee / 自建 Git 等)") {
+            Section("远程地址 (Remotes)") {
                 if repo.remotes.isEmpty {
                     Text("此仓库尚未配置任何远程地址 (git remote)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(repo.remotes) { remote in
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 5) {
                             HStack {
-                                Label(remote.name, systemImage: remote.provider.sfSymbol)
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(remote.provider.badgeColor)
+                                Text(remote.name)
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
 
                                 Text(remote.provider.rawValue)
                                     .font(.system(size: 10, weight: .medium))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1.5)
-                                    .background(Capsule().fill(remote.provider.badgeColor.opacity(0.14)))
-                                    .foregroundStyle(remote.provider.badgeColor)
+                                    .background(RoundedRectangle(cornerRadius: 4).fill(AppTheme.subtleSurface))
+                                    .foregroundStyle(.secondary)
 
                                 Spacer()
 
@@ -644,7 +665,6 @@ struct RepoDetailView: View {
                                         .font(.caption)
                                 }
                                 .buttonStyle(.borderless)
-                                .help("复制 Remote URL")
 
                                 if let web = remote.webURL {
                                     Button {
@@ -654,16 +674,15 @@ struct RepoDetailView: View {
                                             .font(.caption)
                                     }
                                     .buttonStyle(.borderless)
-                                    .help("在浏览器打开仓库主页")
                                 }
                             }
 
                             Text(remote.fetchURL)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 3)
                     }
                 }
             }
@@ -671,21 +690,22 @@ struct RepoDetailView: View {
             Section("本地分支 (\(repo.localBranches.count))") {
                 ForEach(repo.localBranches, id: \.self) { br in
                     HStack {
-                        Image(systemName: br == repo.currentBranch ? "checkmark.circle.fill" : "arrow.triangle.branch")
-                            .foregroundStyle(br == repo.currentBranch ? .green : .secondary)
+                        Circle()
+                            .fill(br == repo.currentBranch ? AppTheme.statusClean : Color.secondary.opacity(0.3))
+                            .frame(width: 6, height: 6)
                         Text(br)
-                            .font(.system(size: 12, weight: br == repo.currentBranch ? .bold : .regular, design: .monospaced))
+                            .font(.system(size: 11.5, weight: br == repo.currentBranch ? .semibold : .regular, design: .monospaced))
                         Spacer()
                         if br != repo.currentBranch {
                             Button("切换") {
-                                Task { await store.checkoutBranch(for: repo, branch: br) }
+                                store.requestCheckoutBranch(for: repo, branch: br)
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.mini)
                         } else {
-                            Text("当前分支")
+                            Text("当前")
                                 .font(.caption2)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -694,14 +714,9 @@ struct RepoDetailView: View {
             if !repo.remoteBranches.isEmpty {
                 Section("远程跟踪分支 (\(repo.remoteBranches.count))") {
                     ForEach(repo.remoteBranches, id: \.self) { rbr in
-                        HStack {
-                            Image(systemName: "cloud")
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                            Text(rbr)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(rbr)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
