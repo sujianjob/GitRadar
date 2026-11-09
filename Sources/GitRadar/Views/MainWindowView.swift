@@ -379,6 +379,36 @@ struct MainWindowView: View {
             }
             .width(min: 65, ideal: 80)
         }
+        .contextMenu(forSelectionType: String.self) { items in
+            if let firstID = items.first,
+               let repo = store.repositories.first(where: { $0.id == firstID }) {
+                Button {
+                    ExternalLauncher.openInVSCode(path: repo.path)
+                } label: {
+                    Label("在 VS Code 中打开", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+
+                Button {
+                    ExternalLauncher.openInAntigravity(path: repo.path)
+                } label: {
+                    Label("在 Antigravity IDE 中打开", systemImage: "sparkles")
+                }
+
+                Button {
+                    ExternalLauncher.openInFinder(path: repo.path)
+                } label: {
+                    Label("在 Finder 中显示", systemImage: "folder")
+                }
+
+                if let webURL = repo.primaryWebURL {
+                    Button {
+                        ExternalLauncher.openInBrowser(urlString: webURL)
+                    } label: {
+                        Label("打开远程主页 (\(repo.primaryProvider.rawValue))", systemImage: "safari")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - 空状态引导视图

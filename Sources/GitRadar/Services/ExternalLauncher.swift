@@ -83,6 +83,50 @@ enum ExternalLauncher {
         NSWorkspace.shared.open(url)
     }
 
+    static func openInVSCode(path: String) {
+        let candidatePaths = [
+            "/Applications/Visual Studio Code.app",
+            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Visual Studio Code.app")
+        ]
+        if let appPath = candidatePaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            let app = ExternalApp(
+                name: "VS Code",
+                category: .editor,
+                bundlePath: appPath,
+                sfSymbol: "chevron.left.forwardslash.chevron.right"
+            )
+            openRepository(path: path, with: app)
+        } else {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            proc.arguments = ["-a", "Visual Studio Code", path]
+            try? proc.run()
+        }
+    }
+
+    static func openInAntigravity(path: String) {
+        let candidatePaths = [
+            "/Applications/Antigravity.app",
+            "/Applications/Antigravity IDE.app",
+            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Antigravity.app"),
+            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Antigravity IDE.app")
+        ]
+        if let appPath = candidatePaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            let app = ExternalApp(
+                name: "Antigravity IDE",
+                category: .editor,
+                bundlePath: appPath,
+                sfSymbol: "sparkles"
+            )
+            openRepository(path: path, with: app)
+        } else {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            proc.arguments = ["-a", "Antigravity", path]
+            try? proc.run()
+        }
+    }
+
     static func openRepository(path: String, with app: ExternalApp) {
         let repoURL = URL(fileURLWithPath: path)
         let appURL = URL(fileURLWithPath: app.bundlePath)

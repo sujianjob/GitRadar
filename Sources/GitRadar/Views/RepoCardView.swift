@@ -274,6 +274,18 @@ struct RepoCardView: View {
         Divider()
 
         Button {
+            ExternalLauncher.openInVSCode(path: repo.path)
+        } label: {
+            Label("在 VS Code 中打开", systemImage: "chevron.left.forwardslash.chevron.right")
+        }
+
+        Button {
+            ExternalLauncher.openInAntigravity(path: repo.path)
+        } label: {
+            Label("在 Antigravity IDE 中打开", systemImage: "sparkles")
+        }
+
+        Button {
             ExternalLauncher.openInFinder(path: repo.path)
         } label: {
             Label("在 Finder 中显示", systemImage: "folder")
