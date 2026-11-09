@@ -3,7 +3,8 @@ set -euo pipefail
 
 APP_NAME="GitRadar"
 BUNDLE_ID="com.gitradar.app"
-VERSION="${VERSION:-1.0.0}"
+DEFAULT_VERSION="$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo '0.2.0')"
+VERSION="${VERSION:-${DEFAULT_VERSION}}"
 DIST_DIR="dist"
 BUILD_DIR="${DIST_DIR}/${APP_NAME}.app"
 DMG_STAGING="${DIST_DIR}/dmg_staging"

@@ -778,6 +778,10 @@ struct SettingsSheetView: View {
         .padding(18)
     }
 
+    private var appVersionString: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0"
+    }
+
     // MARK: - Tab 6: 关于我们与版本信息
     private var aboutUsTab: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -794,7 +798,7 @@ struct SettingsSheetView: View {
                     HStack(spacing: 8) {
                         Text("GitRadar")
                             .font(.system(size: 18, weight: .bold))
-                        Text("v0.1.0")
+                        Text("v\(appVersionString)")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
@@ -843,7 +847,7 @@ struct SettingsSheetView: View {
                 VStack(spacing: 0) {
                     aboutTableRow(label: "应用标识", value: "GitRadar (com.gitradar.app)")
                     Divider().padding(.horizontal, 16).opacity(0.5)
-                    aboutTableRow(label: "当前版本", value: "v0.1.0 (Release · Tag v0.1.0)")
+                    aboutTableRow(label: "当前版本", value: "v\(appVersionString) (Release · Tag v\(appVersionString))")
                     Divider().padding(.horizontal, 16).opacity(0.5)
                     aboutTableRow(label: "技术架构", value: "macOS Native · Swift 6 + SwiftUI + AppKit (Apple Silicon)")
                     Divider().padding(.horizontal, 16).opacity(0.5)
