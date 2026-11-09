@@ -19,6 +19,31 @@ struct PersistedRadarConfig: Codable {
     var sortOption: RepoSortOption
     var defaultScanDepth: Int
     var filterRules: [RepoFilterRule]?
+    var pullUseRebase: Bool?
+    var fetchUsePrune: Bool?
+    var autoScanOnLaunch: Bool?
+}
+
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case directories = "扫描目录"
+    case filter = "过滤管理"
+    case groups = "分组管理"
+    case gitAndCache = "Git 与缓存"
+    case logs = "执行日志"
+    case about = "关于我们"
+
+    var id: String { rawValue }
+
+    var sfSymbol: String {
+        switch self {
+        case .directories: return "folder"
+        case .filter: return "line.3.horizontal.decrease.circle"
+        case .groups: return "tag"
+        case .gitAndCache: return "slider.horizontal.3"
+        case .logs: return "terminal"
+        case .about: return "info.circle"
+        }
+    }
 }
 
 @MainActor
@@ -39,12 +64,15 @@ final class RadarStore: ObservableObject {
     @Published var sortOption: RepoSortOption = .healthPriority
     @Published var showDetailInspector: Bool = true
 
-    // 外部工具偏好
+    // 外部工具与 Git 偏好
     @Published var installedEditors: [ExternalApp] = []
     @Published var installedTerminals: [ExternalApp] = []
     @Published var preferredEditorPath: String? = nil
     @Published var preferredTerminalPath: String? = nil
     @Published var defaultScanDepth: Int = 4
+    @Published var pullUseRebase: Bool = false
+    @Published var fetchUsePrune: Bool = true
+    @Published var autoScanOnLaunch: Bool = true
 
     // 运行状态与反馈
     @Published var isScanning: Bool = false
@@ -56,10 +84,11 @@ final class RadarStore: ObservableObject {
     // 弹窗控制与三次风险确认
     @Published var showNewGroupSheet: Bool = false
     @Published var showSettingsSheet: Bool = false
+    @Published var selectedSettingsTab: SettingsTab = .directories
     @Published var showFilterRulesSheet: Bool = false
     @Published var pendingConfirmation: PendingGitConfirmation? = nil
 
-    private let configFileURL: URL
+    let configFileURL: URL
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -98,6 +127,9 @@ final class RadarStore: ObservableObject {
             self.sortOption = decoded.sortOption
             self.defaultScanDepth = max(1, min(8, decoded.defaultScanDepth))
             self.filterRules = decoded.filterRules ?? []
+            self.pullUseRebase = decoded.pullUseRebase ?? false
+            self.fetchUsePrune = decoded.fetchUsePrune ?? true
+            self.autoScanOnLaunch = decoded.autoScanOnLaunch ?? true
             return
         }
 
@@ -128,7 +160,10 @@ final class RadarStore: ObservableObject {
             viewMode: viewMode,
             sortOption: sortOption,
             defaultScanDepth: defaultScanDepth,
-            filterRules: filterRules
+            filterRules: filterRules,
+            pullUseRebase: pullUseRebase,
+            fetchUsePrune: fetchUsePrune,
+            autoScanOnLaunch: autoScanOnLaunch
         )
         if let data = try? JSONEncoder().encode(cfg) {
             try? data.write(to: configFileURL, options: .atomic)
@@ -957,6 +992,25 @@ final class RadarStore: ObservableObject {
     }
 
     // MARK: - 辅助日志与提示
+    func openSettings(tab: SettingsTab = .directories) {
+        selectedSettingsTab = tab
+        showSettingsSheet = true
+    }
+
+    func clearAvatarCacheAndReload() {
+        let dir = ProjectMetadataInspector.avatarCacheDirectory
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        showBanner("已清空图标缓存，正在重新扫描获取...")
+        Task {
+            await scanAndRefreshAll()
+        }
+    }
+
+    func clearActionLogs() {
+        actionLogs.removeAll()
+    }
+
     private func recordLog(repoName: String, command: String, result: CommandResult) {
         let entry = GitActionLog(
             timestamp: Date(),

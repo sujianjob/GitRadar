@@ -4,46 +4,12 @@ struct FilterRulesSheetView: View {
     @ObservedObject var store: RadarStore
     @Environment(\.dismiss) private var dismiss
 
-    enum FilterTab: String, CaseIterable {
-        case unfiltered = "未过滤"
-        case filtered = "已过滤"
-    }
-
-    @State private var selectedTab: FilterTab = .unfiltered
-    @State private var patternInput: String = ""
-
-    // 未过滤的域名列表
-    private var unfilteredHosts: [RadarStore.DiscoveredHostSummary] {
-        store.discoveredHosts.filter { !$0.isExcluded && $0.visibleCount > 0 }
-    }
-
-    // 未过滤的组织列表
-    private var unfilteredOrgs: [RadarStore.DiscoveredOrgSummary] {
-        store.discoveredHosts
-            .filter { !$0.isExcluded }
-            .flatMap { $0.organizations }
-            .filter { !$0.isExcluded && $0.visibleCount > 0 }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // MARK: 1. 顶部栏：标题 + 双 Tab 切换（未过滤 / 已过滤） + 完成按钮
             HStack(spacing: 12) {
                 Text("过滤管理")
                     .font(.system(size: 15, weight: .bold))
-
                 Spacer()
-
-                Picker("", selection: $selectedTab) {
-                    Text("未过滤 (\(store.visibleRepositories.count))").tag(FilterTab.unfiltered)
-                    Text("已过滤 (\(store.excludedRepositories.count))").tag(FilterTab.filtered)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 240)
-
-                Spacer()
-
                 Button("完成") {
                     store.saveConfig()
                     dismiss()
@@ -57,7 +23,73 @@ struct FilterRulesSheetView: View {
 
             Divider()
 
-            // MARK: 2. 双 Tab 主体内容
+            FilterRulesContentView(store: store)
+        }
+        .frame(width: 680, height: 500)
+    }
+}
+
+struct FilterRulesContentView: View {
+    @ObservedObject var store: RadarStore
+
+    enum FilterTab: String, CaseIterable {
+        case unfiltered = "未过滤"
+        case filtered = "已过滤"
+    }
+
+    @State private var selectedTab: FilterTab = .unfiltered
+    @State private var patternInput: String = ""
+
+    private var unfilteredHosts: [RadarStore.DiscoveredHostSummary] {
+        store.discoveredHosts.filter { !$0.isExcluded && $0.visibleCount > 0 }
+    }
+
+    private var unfilteredOrgs: [RadarStore.DiscoveredOrgSummary] {
+        store.discoveredHosts
+            .filter { !$0.isExcluded }
+            .flatMap { $0.organizations }
+            .filter { !$0.isExcluded && $0.visibleCount > 0 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Picker("", selection: $selectedTab) {
+                    Text("未过滤 (\(store.visibleRepositories.count))").tag(FilterTab.unfiltered)
+                    Text("已过滤 (\(store.excludedRepositories.count))").tag(FilterTab.filtered)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 240)
+
+                Spacer()
+
+                if selectedTab == .unfiltered {
+                    HStack(spacing: 6) {
+                        TextField("输入域名 / 组织 / 仓库关键字，如 gitea.xxx.com", text: $patternInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 280)
+                            .onSubmit {
+                                submitCustomPattern()
+                            }
+
+                        Button("+ 过滤") {
+                            submitCustomPattern()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.accent)
+                        .controlSize(.small)
+                        .disabled(patternInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(AppTheme.subtleSurface)
+
+            Divider()
+
             switch selectedTab {
             case .unfiltered:
                 unfilteredTableSection
@@ -65,34 +97,11 @@ struct FilterRulesSheetView: View {
                 filteredTableSection
             }
         }
-        .frame(width: 640, height: 480)
     }
 
     // MARK: - Tab 1: 未过滤（选择要过滤的域名 / 组织 / 仓库）
     private var unfilteredTableSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 顶部手动输入过滤栏
-            HStack(spacing: 8) {
-                TextField("输入域名 / 组织 / 仓库关键字，如 gitea.xxx.com", text: $patternInput)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12, design: .monospaced))
-                    .onSubmit {
-                        submitCustomPattern()
-                    }
-
-                Button("+ 过滤") {
-                    submitCustomPattern()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(AppTheme.accent)
-                .controlSize(.small)
-                .disabled(patternInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(AppTheme.subtleSurface)
-
-            Divider()
 
             // 表头
             HStack(spacing: 0) {

@@ -24,6 +24,12 @@ struct GitRadarApp: App {
         }
         .windowToolbarStyle(.unified(showsTitle: true))
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 GitRadar") {
+                    store.openSettings(tab: .about)
+                }
+            }
+
             CommandGroup(after: .newItem) {
                 Button("添加扫描目录或仓库...") {
                     store.promptAddDirectory()

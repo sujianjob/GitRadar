@@ -153,9 +153,9 @@ struct MainWindowView: View {
 
                 Spacer()
 
-                // 过滤规则入口按钮
+                // 过滤规则入口按钮（直接打开设置中的「过滤管理」Tab）
                 Button {
-                    store.showFilterRulesSheet = true
+                    store.openSettings(tab: .filter)
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: store.excludedRepositories.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
@@ -169,7 +169,7 @@ struct MainWindowView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .fixedSize()
-                .help("配置仓库过滤隐藏规则，在过滤规则内的仓库不显示")
+                .help("打开设置 → 过滤管理")
 
                 // 批量操作按钮（接入三次风险确认）
                 Button {
@@ -475,6 +475,13 @@ struct MainWindowView: View {
                 Label("详情栏", systemImage: "sidebar.right")
             }
             .help("显示/隐藏右侧详情栏")
+
+            Button {
+                store.openSettings(tab: store.selectedSettingsTab)
+            } label: {
+                Label("设置", systemImage: "gearshape")
+            }
+            .help("打开设置与关于我们 (⌘,)")
         }
     }
 

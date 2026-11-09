@@ -341,7 +341,7 @@ struct RepoCardView: View {
             Divider()
 
             Button {
-                store.showFilterRulesSheet = true
+                store.openSettings(tab: .filter)
             } label: {
                 Label("打开域名与过滤管理面板...", systemImage: "line.3.horizontal.decrease.circle")
             }
