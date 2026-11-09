@@ -5,20 +5,93 @@ struct TripleConfirmSheet: View {
     let onCancel: () -> Void
     let onConfirmedExecute: () -> Void
 
-    @State private var currentStep: Int = 1 // 1 -> 2 -> 3
+    @State private var currentStep: Int = 1 // 仅在 isBatchTripleConfirm == true 时使用 1 -> 2 -> 3
 
     var body: some View {
+        if confirmation.isBatchTripleConfirm {
+            tripleConfirmBody
+        } else {
+            singleConfirmBody
+        }
+    }
+
+    // MARK: - 单项目操作：简洁单次确认弹窗（点一次「确认执行」即可）
+    private var singleConfirmBody: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: confirmation.isDestructive ? "exclamationmark.triangle.fill" : "checkmark.shield.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(confirmation.isDestructive ? AppTheme.statusDirty : AppTheme.accent)
+
+                Text(confirmation.title)
+                    .font(.system(size: 14, weight: .bold))
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text("目标仓库：")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 60, alignment: .leading)
+                    Text(confirmation.targetDescription)
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+
+                HStack(alignment: .top, spacing: 8) {
+                    Text("执行命令：")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 60, alignment: .leading)
+                    Text(confirmation.gitCommandPreview)
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(AppTheme.subtleSurface))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppTheme.hairlineBorder, lineWidth: 1))
+                }
+
+                Text(confirmation.step1Warning)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 6).fill(AppTheme.subtleSurface))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppTheme.hairlineBorder, lineWidth: 1))
+
+            HStack {
+                Spacer()
+                Button("取消") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("确认执行") {
+                    onConfirmedExecute()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(confirmation.isDestructive ? AppTheme.statusDanger : AppTheme.accent)
+            }
+        }
+        .padding(18)
+        .frame(width: 420)
+    }
+
+    // MARK: - 批量操作：三次风险确认弹窗（1/3 -> 2/3 -> 3/3）
+    private var tripleConfirmBody: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // MARK: 1. 标题与风险警示头
             HStack(spacing: 10) {
                 Image(systemName: confirmation.isDestructive ? "exclamationmark.octagon.fill" : "exclamationmark.shield.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(confirmation.isDestructive ? AppTheme.statusDanger : AppTheme.statusDirty)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("安全操作三次确认 · \(confirmation.title)")
+                    Text("批量操作三次确认 · \(confirmation.title)")
                         .font(.system(size: 15, weight: .bold))
-                    Text("为防止误操作造成代码丢失或分支污染，请依次完成以下 3 步风险确认后执行")
+                    Text("批量操作涉及多个仓库，请依次完成以下 3 步风险确认后执行")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -27,7 +100,6 @@ struct TripleConfirmSheet: View {
 
             Divider()
 
-            // MARK: 2. 作用目标与底层 Git 命令回显
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
                     Text("作用目标：")
@@ -47,18 +119,11 @@ struct TripleConfirmSheet: View {
                         .font(.system(size: 11, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(AppTheme.subtleSurface)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(AppTheme.hairlineBorder, lineWidth: 1)
-                        )
+                        .background(RoundedRectangle(cornerRadius: 5).fill(AppTheme.subtleSurface))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AppTheme.hairlineBorder, lineWidth: 1))
                 }
             }
 
-            // MARK: 3. 三步递进风险提示清单
             VStack(alignment: .leading, spacing: 8) {
                 riskStepRow(
                     stepNumber: 1,
@@ -74,14 +139,13 @@ struct TripleConfirmSheet: View {
 
                 riskStepRow(
                     stepNumber: 3,
-                    title: "第 3 次确认：最终执行授权（不可撤销）",
+                    title: "第 3 次确认：最终执行授权",
                     detail: confirmation.step3Warning
                 )
             }
 
             Divider()
 
-            // MARK: 4. 底部操作栏（进度指示 + 递进确认按钮）
             HStack {
                 Text("当前进度：第 \(currentStep) / 3 次确认")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -89,7 +153,7 @@ struct TripleConfirmSheet: View {
 
                 Spacer()
 
-                Button("取消操作") {
+                Button("取消") {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)

@@ -575,12 +575,13 @@ struct GitActionLog: Identifiable, Hashable {
     let output: String
 }
 
-// MARK: - 三次风险确认操作请求模型
+// MARK: - 操作确认请求模型（批量操作需三次确认，单项目操作仅需单次确认）
 struct PendingGitConfirmation: Identifiable {
     let id = UUID()
     let title: String
     let targetDescription: String
     let gitCommandPreview: String
+    let isBatchTripleConfirm: Bool
     let step1Warning: String
     let step2Warning: String
     let step3Warning: String

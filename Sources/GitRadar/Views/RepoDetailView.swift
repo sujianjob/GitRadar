@@ -162,7 +162,7 @@ struct RepoDetailView: View {
 
                 // 分支切换菜单
                 Menu {
-                    Section("切换本地分支（三次确认）") {
+                    Section("切换本地分支") {
                         ForEach(repo.localBranches, id: \.self) { br in
                             Button {
                                 guard br != repo.currentBranch else { return }
@@ -206,7 +206,7 @@ struct RepoDetailView: View {
                             Spacer()
                             Button("取消") { showNewBranchPopover = false }
                                 .controlSize(.small)
-                            Button("下一步（三次确认）") {
+                            Button("创建") {
                                 let name = newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !name.isEmpty else { return }
                                 showNewBranchPopover = false
