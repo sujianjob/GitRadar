@@ -102,53 +102,30 @@ struct MainWindowView: View {
         }
     }
 
-    // MARK: - 紧凑型专业顶部状态栏（替代原 AI 彩虹大卡片）
+    // MARK: - 紧凑型专业顶部状态栏（左侧展示当前视图标题与计数，消除与侧边栏分类重复）
     private var topControlHeader: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 6) {
-                statusFilterPill(
-                    title: "全部",
-                    count: store.visibleRepositories.count,
-                    dotColor: nil,
-                    isActive: store.selectedFilter == .all
-                ) {
-                    store.selectedFilter = .all
-                }
-
-                statusFilterPill(
-                    title: "未提交改动",
-                    count: store.dirtyReposCount,
-                    dotColor: AppTheme.statusDirty,
-                    isActive: store.selectedFilter == .dirty
-                ) {
-                    store.selectedFilter = .dirty
-                }
-
-                statusFilterPill(
-                    title: "待推送",
-                    count: store.unpushedReposCount,
-                    dotColor: AppTheme.statusSync,
-                    isActive: store.selectedFilter == .unpushed
-                ) {
-                    store.selectedFilter = .unpushed
-                }
-
-                statusFilterPill(
-                    title: "待拉取",
-                    count: store.behindReposCount,
-                    dotColor: AppTheme.statusSync,
-                    isActive: store.selectedFilter == .needsPull
-                ) {
-                    store.selectedFilter = .needsPull
-                }
-
-                statusFilterPill(
-                    title: "已同步",
-                    count: store.cleanReposCount,
-                    dotColor: AppTheme.statusClean,
-                    isActive: false
-                ) {
-                    store.selectedFilter = .all
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: currentFilterIcon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(currentFilterTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("\(store.filteredRepositories.count)")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(AppTheme.subtleSurface)
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(AppTheme.hairlineBorder, lineWidth: 1)
+                        )
                 }
 
                 Spacer()
@@ -222,40 +199,54 @@ struct MainWindowView: View {
         }
     }
 
-    private func statusFilterPill(
-        title: String,
-        count: Int,
-        dotColor: Color?,
-        isActive: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let dotColor {
-                    Circle()
-                        .fill(dotColor)
-                        .frame(width: 6, height: 6)
-                }
-                Text(title)
-                    .font(.system(size: 11.5, weight: isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? .primary : .secondary)
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(isActive ? .primary : .secondary)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4.5)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? AppTheme.elevatedSurface : AppTheme.subtleSurface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isActive ? AppTheme.selectedBorder.opacity(0.65) : AppTheme.hairlineBorder, lineWidth: 1)
-            )
+    private var currentFilterTitle: String {
+        switch store.selectedFilter {
+        case .all:
+            return "全部仓库"
+        case .dirty:
+            return "未提交改动"
+        case .unpushed:
+            return "待推送提交"
+        case .needsPull:
+            return "待拉取更新"
+        case .favorites:
+            return "星标常用"
+        case .provider(let provider):
+            return provider.rawValue
+        case .group(let groupID):
+            return store.groups.first(where: { $0.id == groupID })?.name ?? "虚拟分组"
+        case .rootDirectory(let path):
+            return URL(fileURLWithPath: path).lastPathComponent
+        case .domain(let host):
+            return host
+        case .organization(let host, let org):
+            return "\(host)/\(org)"
         }
-        .buttonStyle(.plain)
-        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private var currentFilterIcon: String {
+        switch store.selectedFilter {
+        case .all:
+            return "square.stack.3d.up"
+        case .dirty:
+            return "pencil.line"
+        case .unpushed:
+            return "arrow.up.right"
+        case .needsPull:
+            return "arrow.down.left"
+        case .favorites:
+            return "star"
+        case .provider(let provider):
+            return provider.sfSymbol
+        case .group(let groupID):
+            return store.groups.first(where: { $0.id == groupID })?.icon ?? "folder"
+        case .rootDirectory:
+            return "folder"
+        case .domain:
+            return "network"
+        case .organization:
+            return "person.2"
+        }
     }
 
     // MARK: - 视图模式 1：响应式卡片网格
