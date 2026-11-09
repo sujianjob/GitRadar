@@ -171,17 +171,17 @@ struct RepoCardView: View {
                     Text(fullRepoAddress)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                         .help(fullRepoAddress)
                 } else {
                     Text(repo.path)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                         .help(repo.path)
                 }
             }
