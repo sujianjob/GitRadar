@@ -329,18 +329,10 @@ final class RadarStore: ObservableObject {
     }
 
     func restoreExcludedRepository(_ repo: GitRepository) {
-        // 移除精确路径规则；若因通配规则命中则提示或禁用对应规则
-        let exactRemoved = filterRules.contains { $0.field == .exactPath && $0.matches(repo) }
-        if exactRemoved {
-            filterRules.removeAll { $0.field == .exactPath && $0.matches(repo) }
-        } else {
-            for idx in filterRules.indices where filterRules[idx].matches(repo) {
-                filterRules[idx].isEnabled = false
-            }
-        }
+        filterRules.removeAll { $0.matches(repo) }
         reconcileSelectionAfterFilterChange()
         saveConfig()
-        showBanner("已恢复显示仓库：\(repo.name)")
+        showBanner("已恢复显示：\(repo.name)")
     }
 
     private func reconcileSelectionAfterFilterChange() {
