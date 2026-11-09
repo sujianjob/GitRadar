@@ -153,8 +153,8 @@ struct RepoCardView: View {
             Divider()
                 .opacity(0.45)
 
-            // MARK: 4. 底部工具栏（仅保留 Finder 与远程主页，移除右下角 Fetch/Push）
-            HStack(spacing: 6) {
+            // MARK: 4. 底部工具栏（左侧 Finder 与远程主页，右下角显示完整仓库地址）
+            HStack(alignment: .center, spacing: 8) {
                 toolButton(title: "Finder", icon: "folder") {
                     ExternalLauncher.openInFinder(path: repo.path)
                 }
@@ -165,14 +165,24 @@ struct RepoCardView: View {
                     }
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: 6)
 
-                if let slug = repo.primaryRemoteSlug, !slug.isEmpty {
-                    Text(slug)
+                if let fullRepoAddress = repo.primaryWebURL ?? repo.remotes.first?.fetchURL {
+                    Text(fullRepoAddress)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .help(fullRepoAddress)
+                } else {
+                    Text(repo.path)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .help(repo.path)
                 }
             }
         }
