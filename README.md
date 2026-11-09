@@ -44,7 +44,25 @@
 
 ---
 
-## 🚀 编译与打包
+## 📥 下载安装与首次打开说明（未公证签名必读）
+
+由于本项目为纯开源免费项目，采用本地 Ad-hoc 签名打包，暂未购买 Apple Developer ID 商业证书进行苹果公证（Notarization）。
+
+当您从 Release 页面下载 `.dmg` 安装包并将 `GitRadar.app` 拖入 `/Applications`（应用程序）后，首次打开若提示 **「“GitRadar”已损坏，无法打开」** 或 **「无法验证开发者」**，请在终端执行以下 `xattr` 命令移除 macOS 隔离属性即可正常打开：
+
+```bash
+sudo xattr -rd com.apple.quarantine /Applications/GitRadar.app
+```
+
+执行完成后即可直接启动：
+
+```bash
+open /Applications/GitRadar.app
+```
+
+---
+
+## 🚀 源码编译与打包
 
 ```bash
 # 1. 开发调试运行
