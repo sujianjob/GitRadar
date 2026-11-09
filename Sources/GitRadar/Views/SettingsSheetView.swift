@@ -43,9 +43,9 @@ struct SettingsSheetView: View {
 
     private var generalSettingsTab: some View {
         Form {
-            Section("目录递归扫描配置") {
+            Section("扫描配置") {
                 Stepper(
-                    "默认最大递归扫描深度：\(store.defaultScanDepth) 层",
+                    "最大递归扫描深度：\(store.defaultScanDepth) 层",
                     value: $store.defaultScanDepth,
                     in: 1...8
                 )
@@ -55,10 +55,6 @@ struct SettingsSheetView: View {
                     }
                     store.saveConfig()
                 }
-
-                Text("已自动跳过 node_modules、.build、Pods、DerivedData、venv、target、dist 等构建与依赖目录，保证毫秒级扫描响应。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

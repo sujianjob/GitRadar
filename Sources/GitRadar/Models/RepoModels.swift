@@ -453,19 +453,20 @@ enum RepoSortOption: String, Codable, CaseIterable {
 
 // MARK: - 仓库过滤屏蔽规则（命中规则的仓库不显示）
 enum FilterRuleMatchField: String, Codable, CaseIterable, Identifiable {
-    case remoteHost = "远程域名 (Host)"
-    case remoteOrganization = "远程组织 / Owner"
+    case smart = "自动匹配"
+    case remoteHost = "远程域名"
+    case remoteOrganization = "远程组织"
     case repoName = "仓库名称"
-    case pathContains = "目录路径包含"
-    case exactPath = "指定仓库路径"
-    case remoteContains = "远程地址包含"
+    case pathContains = "目录路径"
+    case exactPath = "指定路径"
+    case remoteContains = "远程地址"
 
     var id: String { rawValue }
 }
 
 struct RepoFilterRule: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
-    var field: FilterRuleMatchField
+    var field: FilterRuleMatchField = .smart
     var pattern: String
     var isEnabled: Bool = true
     var note: String = ""
@@ -474,37 +475,17 @@ struct RepoFilterRule: Identifiable, Codable, Hashable {
         guard isEnabled else { return false }
         let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
+        let cleaned = Self.stripSchemeAndTrailingSlash(trimmed)
 
         switch field {
-        case .remoteHost:
-            // 支持匹配域名（如 gitea.company.com 或 *.company.com）
-            let normalizedPattern = Self.stripSchemeAndTrailingSlash(trimmed)
-            return repo.remotes.contains { remote in
-                guard !remote.host.isEmpty else { return false }
-                return Self.wildcardOrExactOrSubdomainMatch(host: remote.host, pattern: normalizedPattern)
-            }
-        case .remoteOrganization:
-            // 支持仅填组织名（如 my-org）或带域名（如 gitea.company.com/my-org）
-            let normalizedPattern = Self.stripSchemeAndTrailingSlash(trimmed)
-            return repo.remotes.contains { remote in
-                let parts = remote.ownerAndRepo.split(separator: "/").map(String.init)
-                guard parts.count >= 2 else { return false }
-                let orgOnly = parts[0]
-                let subGroupPath = parts.dropLast().joined(separator: "/") // 支持 GitLab 多级 group/subgroup
-                let hostAndOrg = "\(remote.host)/\(orgOnly)"
-                let hostAndSubGroup = "\(remote.host)/\(subGroupPath)"
-
-                if normalizedPattern.contains("/") {
-                    return Self.wildcardOrSubstringMatch(text: hostAndOrg, pattern: normalizedPattern) ||
-                           Self.wildcardOrSubstringMatch(text: hostAndSubGroup, pattern: normalizedPattern) ||
-                           Self.wildcardOrSubstringMatch(text: subGroupPath, pattern: normalizedPattern)
-                } else {
-                    return orgOnly.caseInsensitiveCompare(normalizedPattern) == .orderedSame ||
-                           Self.wildcardOrSubstringMatch(text: orgOnly, pattern: normalizedPattern)
-                }
-            }
         case .exactPath:
             return repo.path == trimmed || repo.displayPath == trimmed
+        case .remoteHost:
+            return repo.remotes.contains {
+                !$0.host.isEmpty && Self.wildcardOrExactOrSubdomainMatch(host: $0.host, pattern: cleaned)
+            }
+        case .remoteOrganization:
+            return Self.matchesOrganization(repo: repo, pattern: cleaned)
         case .repoName:
             return Self.wildcardOrSubstringMatch(text: repo.name, pattern: trimmed)
         case .pathContains:
@@ -513,6 +494,38 @@ struct RepoFilterRule: Identifiable, Codable, Hashable {
         case .remoteContains:
             let remoteStr = (repo.primaryWebURL ?? repo.remotes.first?.fetchURL ?? "")
             return Self.wildcardOrSubstringMatch(text: remoteStr, pattern: trimmed)
+        case .smart:
+            // 自动匹配：域名、组织(host/org 或 org)、仓库名、路径、远程地址任一命中即过滤
+            if repo.path == trimmed || repo.displayPath == trimmed { return true }
+            if Self.wildcardOrSubstringMatch(text: repo.name, pattern: cleaned) { return true }
+            if repo.remotes.contains(where: { !$0.host.isEmpty && Self.wildcardOrExactOrSubdomainMatch(host: $0.host, pattern: cleaned) }) {
+                return true
+            }
+            if Self.matchesOrganization(repo: repo, pattern: cleaned) { return true }
+            let remoteStr = (repo.primaryWebURL ?? repo.remotes.first?.fetchURL ?? "")
+            if !remoteStr.isEmpty && Self.wildcardOrSubstringMatch(text: remoteStr, pattern: cleaned) { return true }
+            if Self.wildcardOrSubstringMatch(text: repo.path, pattern: trimmed) { return true }
+            return false
+        }
+    }
+
+    private static func matchesOrganization(repo: GitRepository, pattern: String) -> Bool {
+        repo.remotes.contains { remote in
+            let parts = remote.ownerAndRepo.split(separator: "/").map(String.init)
+            guard parts.count >= 2 else { return false }
+            let orgOnly = parts[0]
+            let subGroupPath = parts.dropLast().joined(separator: "/")
+            let hostAndOrg = "\(remote.host)/\(orgOnly)"
+            let hostAndSubGroup = "\(remote.host)/\(subGroupPath)"
+
+            if pattern.contains("/") {
+                return wildcardOrSubstringMatch(text: hostAndOrg, pattern: pattern) ||
+                       wildcardOrSubstringMatch(text: hostAndSubGroup, pattern: pattern) ||
+                       wildcardOrSubstringMatch(text: subGroupPath, pattern: pattern)
+            } else {
+                return orgOnly.caseInsensitiveCompare(pattern) == .orderedSame ||
+                       wildcardOrSubstringMatch(text: orgOnly, pattern: pattern)
+            }
         }
     }
 
