@@ -1,91 +1,55 @@
-# GitRadar — macOS 原生全平台本地 Git 仓库全景管理工具
+# GitRadar
 
 ![Version](https://img.shields.io/badge/version-v0.2.0-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS%2014.0%2B-lightgrey)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**GitRadar** 是一款基于 **Swift 6 + SwiftUI + AppKit** 原生开发的 macOS 桌面应用，专为解决「本机不同目录下散落大量 Git 项目、难以统一查看状态和批量同步管理」而设计。
-
-它不仅支持 **GitHub**，还全面支持 **GitLab、Gitee、Bitbucket、Codeberg / Gitea、CNB / Coding、企业自建 Git 以及纯本地 Git 仓库**，所有扫描、配置与缓存均在本地离线完成，零云端数据上传。
-
----
-
-## ✨ 核心功能
-
-1. **跨目录递归扫描与自定义虚拟分组**
-   - 支持添加多个本地根目录（如 `~/AI`、`~/Projects`、`~/Developer`）或直接拖拽文件夹进入窗口，自动递归扫描所有 `.git` 仓库（自动跳过 `node_modules`、`.build`、`Pods`、`venv`、`target` 等构建与依赖目录）。
-   - 支持创建**虚拟分组 / 标签**（不移动硬盘上的真实目录），支持星标收藏置顶。
-
-2. **全平台远程识别与 IDE 快捷打开**
-   - 自动解析 `SSH` (`git@host:owner/repo.git`) 与 `HTTP/HTTPS` 远程地址。
-   - 自动识别 **GitHub、GitLab、Gitee、Bitbucket、Codeberg/Gitea、CNB/Coding、自建 Git 服务** 与 **仅本地仓库**。
-   - 仓库卡片右下角单行自适应展示完整仓库地址（超长自动尾部省略，悬停提示完整地址），底部支持一键打开 **Finder** 或 **远程主页**；右键菜单支持一键在 **VS Code**、**Antigravity IDE** 中直接打开项目。
-
-3. **域名 / 组织 / 仓库级过滤与屏蔽管理**
-   - 支持按**远程域名**（如自建 Gitea / GitLab 实例）、**远程组织 (Owner / Org)**、**指定仓库**或**路径关键字**一键过滤屏蔽，被过滤的仓库不在主看板中显示。
-   - 采用清晰的**「未过滤 / 已过滤」双表视图**，支持随时查看已配置规则命中情况或一键恢复已隐藏仓库。
-
-4. **多级项目真实图标获取与技术栈识别**
-   - 自动扫描仓库本地图标（`AppIcon`、`logo/`、`public/`、`favicon` 及 `README` 引用图标）。
-   - 自动拉取并本地缓存远程仓库组织/作者官方头像（如 GitHub / GitLab Owner Avatar）。
-   - 对无图片纯本地项目自动检测技术栈（`Swift`、`Python`、`TypeScript`、`Node.js`、`Rust`、`Go`、`AI Skill` 等），生成差异化的双字母专属徽标。
-
-5. **克制专业的桌面视觉 + 右侧栏 README 简介预览**
-   - 借鉴 **Linear / Fork / GitHub Desktop** 的石墨灰与岩石蓝配色体系。
-   - 点击任意项目后，右侧详情栏上方 **≥ 2/5 高度区域直接展示该项目的 README 简介摘要**（支持一键展开全文；无 README 的项目自动留空），下方提供**工作区变更列表**、**最近提交历史**与**远程/分支管理**。
-
-6. **分级安全确认机制（单仓一键确认 + 批量三步确认）**
-   - **单项目操作**（右侧详情栏右上角的单仓 `Fetch`、`Pull`、`Push`、本地分支切换、提交、放弃单文件修改）：采用 **1 步快捷确认弹窗**，兼顾安全与高频操作效率。
-   - **批量高风险操作**（顶部 `批量 Fetch`、`一键批量 Pull`）：内置 **3 步递进式风险确认弹窗**（核对目标与命令 → 评估冲突/覆盖风险 → 最终执行授权），防止误操作污染多仓库工作区。
-
-7. **统一顶部 Tab「偏好设置」中心**
-   - 集中管理 `扫描目录`、`过滤管理`、`分组管理`、`Git 与缓存`、`执行日志` 与 `关于我们（版本信息）` 六大模块。
+**macOS 原生全平台本地 Git 仓库全景管理工具。**  
+基于 `Swift 6 + SwiftUI` 构建，统一扫描与管理散落在本机多个目录下的所有 Git 仓库，纯本地离线运行。
 
 ---
 
-## 📥 下载安装与首次打开说明（未公证签名必读）
+## 功能特性
 
-由于本项目为纯开源免费项目，采用本地 Ad-hoc 签名打包，暂未购买 Apple Developer ID 商业证书进行苹果公证（Notarization）。
+| 模块 | 说明 |
+| :--- | :--- |
+| **多目录扫描** | 支持添加多个本地根目录或拖拽文件夹，自动递归发现所有 `.git` 仓库。 |
+| **全平台识别** | 自动识别 GitHub、GitLab、Gitee、Bitbucket、Gitea/Codeberg、CNB/Coding、自建 Git 与纯本地仓库。 |
+| **过滤与屏蔽** | 支持按远程域名（如自建 Gitea/GitLab）、组织（Owner/Org）或仓库一键隐藏，提供「未过滤 / 已过滤」双表管理。 |
+| **状态与详情** | 实时展示未提交改动、领先/落后提交数、分支状态与项目 `README` 简介预览。 |
+| **快捷打开** | 支持一键打开 `Finder`、远程主页，右键菜单支持在 **VS Code** 与 **Antigravity IDE** 中打开项目。 |
+| **分级安全确认** | 单项目 `Fetch / Pull / Push` 一键确认；批量 `Fetch / Pull` 采用三步递进确认，防止误操作。 |
 
-当您从 Release 页面下载 `.dmg` 安装包并将 `GitRadar.app` 拖入 `/Applications`（应用程序）后，首次打开若提示 **「“GitRadar”已损坏，无法打开」** 或 **「无法验证开发者」**，请在终端执行以下 `xattr` 命令移除 macOS 隔离属性即可正常打开：
+---
+
+## 安装与运行
+
+### 1. DMG 安装（推荐）
+
+1. 从 Releases 下载 `GitRadar-v0.2.0.dmg`，将 `GitRadar.app` 拖入 `/Applications`（应用程序）。
+2. 由于项目未购买 Apple 开发者证书公证，首次打开若提示 **「已损坏，无法打开」** 或 **「无法验证开发者」**，请在终端执行以下命令解除隔离限制：
 
 ```bash
 sudo xattr -rd com.apple.quarantine /Applications/GitRadar.app
-```
-
-执行完成后即可直接启动：
-
-```bash
 open /Applications/GitRadar.app
 ```
 
----
+### 2. 源码编译
 
-## 🚀 源码编译与打包
+环境要求：`macOS 14.0+`、`Swift 6.0+`（Xcode 或 Command Line Tools）。
 
 ```bash
-# 1. 开发调试运行
+# 调试运行
 swift run
 
-# 2. 一键构建 Release 版 GitRadar.app 与 DMG 安装镜像（自动读取 VERSION 文件）
-chmod +x scripts/build_app.sh
+# 打包 Release 版 GitRadar.app 与 DMG 镜像（产物位于 dist/）
 ./scripts/build_app.sh
-
-# 3. 安装到 /Applications 并启动
-cp -R dist/GitRadar.app /Applications/
-open /Applications/GitRadar.app
 ```
 
 ---
 
-## 📦 版本管理
+## 版本与协议
 
-- 当前发布版本：[`v0.2.0`](VERSION)
-- 版本变更记录：详见 [`CHANGELOG.md`](CHANGELOG.md)
-
----
-
-## 📄 开源协议 (License)
-
-本项目基于 **[MIT License](LICENSE)** 开源协议发布。您可以自由地使用、复制、修改、合并、发布和分发本软件。
+- **更新日志**：[CHANGELOG.md](CHANGELOG.md)
+- **开源协议**：[MIT License](LICENSE)
