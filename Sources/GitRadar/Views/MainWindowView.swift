@@ -30,6 +30,9 @@ struct MainWindowView: View {
         .sheet(isPresented: $store.showSettingsSheet) {
             SettingsSheetView(store: store)
         }
+        .sheet(isPresented: $store.showFilterRulesSheet) {
+            FilterRulesSheetView(store: store)
+        }
         .sheet(item: $store.pendingConfirmation) { confirmation in
             TripleConfirmSheet(
                 confirmation: confirmation,
@@ -105,7 +108,7 @@ struct MainWindowView: View {
             HStack(spacing: 6) {
                 statusFilterPill(
                     title: "全部",
-                    count: store.repositories.count,
+                    count: store.visibleRepositories.count,
                     dotColor: nil,
                     isActive: store.selectedFilter == .all
                 ) {
@@ -149,6 +152,24 @@ struct MainWindowView: View {
                 }
 
                 Spacer()
+
+                // 过滤规则入口按钮
+                Button {
+                    store.showFilterRulesSheet = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: store.excludedRepositories.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(store.excludedRepositories.isEmpty ? Color.secondary : AppTheme.accent)
+                        Text(store.excludedRepositories.isEmpty ? "过滤规则" : "已过滤 (\(store.excludedRepositories.count))")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .fixedSize()
+                .help("配置仓库过滤隐藏规则，在过滤规则内的仓库不显示")
 
                 // 批量操作按钮（接入三次风险确认）
                 Button {

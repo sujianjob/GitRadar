@@ -18,6 +18,7 @@ struct PersistedRadarConfig: Codable {
     var viewMode: DashboardViewMode
     var sortOption: RepoSortOption
     var defaultScanDepth: Int
+    var filterRules: [RepoFilterRule]?
 }
 
 @MainActor
@@ -28,6 +29,7 @@ final class RadarStore: ObservableObject {
     @Published var manualRepoPaths: Set<String> = []
     @Published var groups: [RepoGroup] = []
     @Published var repoMetaMap: [String: RepoUserMeta] = [:]
+    @Published var filterRules: [RepoFilterRule] = []
 
     // 导航与筛选状态
     @Published var selectedFilter: SidebarFilter = .all
@@ -54,6 +56,7 @@ final class RadarStore: ObservableObject {
     // 弹窗控制与三次风险确认
     @Published var showNewGroupSheet: Bool = false
     @Published var showSettingsSheet: Bool = false
+    @Published var showFilterRulesSheet: Bool = false
     @Published var pendingConfirmation: PendingGitConfirmation? = nil
 
     private let configFileURL: URL
@@ -94,6 +97,7 @@ final class RadarStore: ObservableObject {
             self.viewMode = decoded.viewMode
             self.sortOption = decoded.sortOption
             self.defaultScanDepth = max(1, min(8, decoded.defaultScanDepth))
+            self.filterRules = decoded.filterRules ?? []
             return
         }
 
@@ -123,10 +127,87 @@ final class RadarStore: ObservableObject {
             preferredTerminalPath: preferredTerminalPath,
             viewMode: viewMode,
             sortOption: sortOption,
-            defaultScanDepth: defaultScanDepth
+            defaultScanDepth: defaultScanDepth,
+            filterRules: filterRules
         )
         if let data = try? JSONEncoder().encode(cfg) {
             try? data.write(to: configFileURL, options: .atomic)
+        }
+    }
+
+    // MARK: - 过滤规则匹配与可见仓库计算
+    func isRepositoryExcluded(_ repo: GitRepository) -> Bool {
+        filterRules.contains { $0.matches(repo) }
+    }
+
+    func matchingRules(for repo: GitRepository) -> [RepoFilterRule] {
+        filterRules.filter { $0.matches(repo) }
+    }
+
+    /// 排除命中过滤规则后的所有可见仓库
+    var visibleRepositories: [GitRepository] {
+        repositories.filter { !isRepositoryExcluded($0) }
+    }
+
+    /// 当前被过滤规则隐藏的仓库列表
+    var excludedRepositories: [GitRepository] {
+        repositories.filter { isRepositoryExcluded($0) }
+    }
+
+    var activeFilterRulesCount: Int {
+        filterRules.filter(\.isEnabled).count
+    }
+
+    func addFilterRule(field: FilterRuleMatchField, pattern: String, note: String = "") {
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if filterRules.contains(where: { $0.field == field && $0.pattern.lowercased() == trimmed.lowercased() }) {
+            showBanner("该过滤规则已存在")
+            return
+        }
+        let rule = RepoFilterRule(field: field, pattern: trimmed, isEnabled: true, note: note)
+        filterRules.insert(rule, at: 0)
+        reconcileSelectionAfterFilterChange()
+        saveConfig()
+        showBanner("已添加过滤规则：\(field.rawValue)「\(trimmed)」")
+    }
+
+    func hideRepository(_ repo: GitRepository) {
+        addFilterRule(field: .exactPath, pattern: repo.path, note: "手动隐藏：\(repo.name)")
+    }
+
+    func toggleFilterRule(_ ruleID: UUID) {
+        guard let idx = filterRules.firstIndex(where: { $0.id == ruleID }) else { return }
+        filterRules[idx].isEnabled.toggle()
+        reconcileSelectionAfterFilterChange()
+        saveConfig()
+    }
+
+    func deleteFilterRule(_ ruleID: UUID) {
+        filterRules.removeAll { $0.id == ruleID }
+        reconcileSelectionAfterFilterChange()
+        saveConfig()
+    }
+
+    func restoreExcludedRepository(_ repo: GitRepository) {
+        // 移除精确路径规则；若因通配规则命中则提示或禁用对应规则
+        let exactRemoved = filterRules.contains { $0.field == .exactPath && $0.matches(repo) }
+        if exactRemoved {
+            filterRules.removeAll { $0.field == .exactPath && $0.matches(repo) }
+        } else {
+            for idx in filterRules.indices where filterRules[idx].matches(repo) {
+                filterRules[idx].isEnabled = false
+            }
+        }
+        reconcileSelectionAfterFilterChange()
+        saveConfig()
+        showBanner("已恢复显示仓库：\(repo.name)")
+    }
+
+    private func reconcileSelectionAfterFilterChange() {
+        if let currentID = selectedRepoID,
+           !visibleRepositories.contains(where: { $0.id == currentID }) {
+            selectedRepoID = filteredRepositories.first?.id
         }
     }
 
@@ -141,11 +222,11 @@ final class RadarStore: ObservableObject {
 
     var selectedRepository: GitRepository? {
         guard let id = selectedRepoID else { return nil }
-        return repositories.first(where: { $0.id == id })
+        return visibleRepositories.first(where: { $0.id == id })
     }
 
     var filteredRepositories: [GitRepository] {
-        var list = repositories
+        var list = visibleRepositories
 
         switch selectedFilter {
         case .all:
@@ -206,22 +287,22 @@ final class RadarStore: ObservableObject {
         return list
     }
 
-    var dirtyReposCount: Int { repositories.filter { $0.totalUncommittedCount > 0 }.count }
-    var unpushedReposCount: Int { repositories.filter { $0.aheadCount > 0 }.count }
-    var behindReposCount: Int { repositories.filter { $0.behindCount > 0 }.count }
-    var cleanReposCount: Int { repositories.filter { $0.healthState == .clean }.count }
-    var favoriteReposCount: Int { repositories.filter { $0.isFavorite }.count }
+    var dirtyReposCount: Int { visibleRepositories.filter { $0.totalUncommittedCount > 0 }.count }
+    var unpushedReposCount: Int { visibleRepositories.filter { $0.aheadCount > 0 }.count }
+    var behindReposCount: Int { visibleRepositories.filter { $0.behindCount > 0 }.count }
+    var cleanReposCount: Int { visibleRepositories.filter { $0.healthState == .clean }.count }
+    var favoriteReposCount: Int { visibleRepositories.filter { $0.isFavorite }.count }
 
     func countForProvider(_ provider: GitProvider) -> Int {
-        repositories.filter { $0.primaryProvider == provider }.count
+        visibleRepositories.filter { $0.primaryProvider == provider }.count
     }
 
     func countForGroup(_ groupID: UUID) -> Int {
-        repositories.filter { $0.groupIDs.contains(groupID) }.count
+        visibleRepositories.filter { $0.groupIDs.contains(groupID) }.count
     }
 
     func countForRootDirectory(_ rootPath: String) -> Int {
-        repositories.filter { $0.rootSourcePath == rootPath || $0.path.hasPrefix(rootPath) }.count
+        visibleRepositories.filter { $0.rootSourcePath == rootPath || $0.path.hasPrefix(rootPath) }.count
     }
 
     // MARK: - 目录与分组管理
@@ -382,12 +463,11 @@ final class RadarStore: ObservableObject {
         }
 
         self.repositories = loadedRepos
-        if selectedRepoID == nil || !loadedRepos.contains(where: { $0.id == selectedRepoID }) {
+        if selectedRepoID == nil || !visibleRepositories.contains(where: { $0.id == selectedRepoID }) {
             selectedRepoID = filteredRepositories.first?.id
         }
         saveConfig()
 
-        // 后台异步拉取远程组织/作者真实头像并缓存到本地磁盘
         Task {
             await hydrateRemoteAvatarsIfNeeded()
         }

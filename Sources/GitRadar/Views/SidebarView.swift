@@ -21,7 +21,7 @@ struct SidebarView: View {
                     title: "全部仓库",
                     icon: "square.stack.3d.up",
                     dotColor: nil,
-                    count: store.repositories.count
+                    count: store.visibleRepositories.count
                 )
                 sidebarRow(
                     filter: .dirty,
@@ -182,9 +182,15 @@ struct SidebarView: View {
                         Circle()
                             .fill(AppTheme.statusClean)
                             .frame(width: 6, height: 6)
-                        Text("已索引 \(store.repositories.count) 个仓库")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                        if store.excludedRepositories.isEmpty {
+                            Text("已显示 \(store.visibleRepositories.count) 个仓库")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("显示 \(store.visibleRepositories.count) · 已过滤 \(store.excludedRepositories.count)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button {

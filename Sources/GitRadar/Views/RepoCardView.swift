@@ -312,5 +312,19 @@ struct RepoCardView: View {
                 Label("复制 Remote URL", systemImage: "link")
             }
         }
+
+        Divider()
+
+        Button {
+            store.hideRepository(repo)
+        } label: {
+            Label("加入过滤规则（不显示此仓库）", systemImage: "eye.slash")
+        }
+
+        Button {
+            store.showFilterRulesSheet = true
+        } label: {
+            Label("管理过滤规则...", systemImage: "line.3.horizontal.decrease.circle")
+        }
     }
 }

@@ -411,6 +411,54 @@ enum RepoSortOption: String, Codable, CaseIterable {
     case pathAsc = "按所在目录路径"
 }
 
+// MARK: - 仓库过滤屏蔽规则（命中规则的仓库不显示）
+enum FilterRuleMatchField: String, Codable, CaseIterable, Identifiable {
+    case repoName = "仓库名称"
+    case pathContains = "目录路径包含"
+    case exactPath = "指定仓库路径"
+    case remoteContains = "远程地址包含"
+
+    var id: String { rawValue }
+}
+
+struct RepoFilterRule: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var field: FilterRuleMatchField
+    var pattern: String
+    var isEnabled: Bool = true
+    var note: String = ""
+
+    func matches(_ repo: GitRepository) -> Bool {
+        guard isEnabled else { return false }
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        switch field {
+        case .exactPath:
+            return repo.path == trimmed || repo.displayPath == trimmed
+        case .repoName:
+            return Self.wildcardOrSubstringMatch(text: repo.name, pattern: trimmed)
+        case .pathContains:
+            return Self.wildcardOrSubstringMatch(text: repo.path, pattern: trimmed) ||
+                   Self.wildcardOrSubstringMatch(text: repo.displayPath, pattern: trimmed)
+        case .remoteContains:
+            let remoteStr = (repo.primaryWebURL ?? repo.remotes.first?.fetchURL ?? "")
+            return Self.wildcardOrSubstringMatch(text: remoteStr, pattern: trimmed)
+        }
+    }
+
+    private static func wildcardOrSubstringMatch(text: String, pattern: String) -> Bool {
+        let lowerText = text.lowercased()
+        let lowerPattern = pattern.lowercased()
+        if lowerPattern.contains("*") {
+            let regexPattern = "^" + NSRegularExpression.escapedPattern(for: lowerPattern)
+                .replacingOccurrences(of: "\\*", with: ".*") + "$"
+            return lowerText.range(of: regexPattern, options: .regularExpression) != nil
+        }
+        return lowerText.contains(lowerPattern)
+    }
+}
+
 // MARK: - 操作日志记录
 struct GitActionLog: Identifiable, Hashable {
     let id = UUID()
