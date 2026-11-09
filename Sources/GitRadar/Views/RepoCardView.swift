@@ -315,16 +315,36 @@ struct RepoCardView: View {
 
         Divider()
 
-        Button {
-            store.hideRepository(repo)
-        } label: {
-            Label("加入过滤规则（不显示此仓库）", systemImage: "eye.slash")
-        }
+        Menu("过滤与屏蔽（不显示）") {
+            Button {
+                store.hideRepository(repo)
+            } label: {
+                Label("隐藏此仓库 (\(repo.name))", systemImage: "eye.slash")
+            }
 
-        Button {
-            store.showFilterRulesSheet = true
-        } label: {
-            Label("管理过滤规则...", systemImage: "line.3.horizontal.decrease.circle")
+            if let org = repo.primaryOrganization, !org.isEmpty {
+                Button {
+                    store.hideRemoteOrganization(host: repo.primaryHost, org: org)
+                } label: {
+                    Label("屏蔽组织「\(org)」下所有仓库", systemImage: "person.2.slash")
+                }
+            }
+
+            if let host = repo.primaryHost, !host.isEmpty {
+                Button {
+                    store.hideRemoteHost(host)
+                } label: {
+                    Label("屏蔽域名「\(host)」下所有仓库", systemImage: "network.slash")
+                }
+            }
+
+            Divider()
+
+            Button {
+                store.showFilterRulesSheet = true
+            } label: {
+                Label("打开域名与过滤管理面板...", systemImage: "line.3.horizontal.decrease.circle")
+            }
         }
     }
 }

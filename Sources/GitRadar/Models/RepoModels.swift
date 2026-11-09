@@ -325,6 +325,42 @@ struct GitRepository: Identifiable, Hashable, Codable {
         stagedCount + modifiedCount + untrackedCount + conflictCount
     }
 
+    /// 主远程所属组织/用户名（如从 "langchain-ai/langgraph" 提取 "langchain-ai"）
+    var primaryOrganization: String? {
+        guard let slug = primaryRemoteSlug, !slug.isEmpty else { return nil }
+        let parts = slug.split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return nil }
+        return parts.first
+    }
+
+    /// 完整的「域名/组织」标识（如 "gitea.corp.com/team-a"）
+    var primaryHostAndOrg: String? {
+        guard let host = primaryHost, !host.isEmpty, let org = primaryOrganization, !org.isEmpty else {
+            return nil
+        }
+        return "\(host)/\(org)"
+    }
+
+    /// 该仓库所有 Remote 涉及的域名集合
+    var allRemoteHosts: [String] {
+        Array(Set(remotes.map(\.host).filter { !$0.isEmpty })).sorted()
+    }
+
+    /// 该仓库所有 Remote 涉及的组织/Owner 集合
+    var allRemoteOrganizations: [String] {
+        var orgs: Set<String> = []
+        for r in remotes {
+            let parts = r.ownerAndRepo.split(separator: "/").map(String.init)
+            if parts.count >= 2 {
+                orgs.insert(parts[0])
+                if !r.host.isEmpty {
+                    orgs.insert("\(r.host)/\(parts[0])")
+                }
+            }
+        }
+        return Array(orgs).sorted()
+    }
+
     var isDirty: Bool {
         totalUncommittedCount > 0
     }
@@ -372,6 +408,8 @@ enum SidebarFilter: Hashable {
     case needsPull
     case favorites
     case provider(GitProvider)
+    case domain(String)
+    case organization(host: String, org: String)
     case group(UUID)
     case rootDirectory(String)
 
@@ -383,6 +421,8 @@ enum SidebarFilter: Hashable {
         case .needsPull: return "待拉取更新"
         case .favorites: return "星标收藏"
         case .provider(let p): return p.rawValue
+        case .domain(let host): return "域名：\(host)"
+        case .organization(let host, let org): return "\(host)/\(org)"
         case .group: return "自定义分组"
         case .rootDirectory(let path):
             return URL(fileURLWithPath: path).lastPathComponent
@@ -413,6 +453,8 @@ enum RepoSortOption: String, Codable, CaseIterable {
 
 // MARK: - 仓库过滤屏蔽规则（命中规则的仓库不显示）
 enum FilterRuleMatchField: String, Codable, CaseIterable, Identifiable {
+    case remoteHost = "远程域名 (Host)"
+    case remoteOrganization = "远程组织 / Owner"
     case repoName = "仓库名称"
     case pathContains = "目录路径包含"
     case exactPath = "指定仓库路径"
@@ -434,6 +476,33 @@ struct RepoFilterRule: Identifiable, Codable, Hashable {
         guard !trimmed.isEmpty else { return false }
 
         switch field {
+        case .remoteHost:
+            // 支持匹配域名（如 gitea.company.com 或 *.company.com）
+            let normalizedPattern = Self.stripSchemeAndTrailingSlash(trimmed)
+            return repo.remotes.contains { remote in
+                guard !remote.host.isEmpty else { return false }
+                return Self.wildcardOrExactOrSubdomainMatch(host: remote.host, pattern: normalizedPattern)
+            }
+        case .remoteOrganization:
+            // 支持仅填组织名（如 my-org）或带域名（如 gitea.company.com/my-org）
+            let normalizedPattern = Self.stripSchemeAndTrailingSlash(trimmed)
+            return repo.remotes.contains { remote in
+                let parts = remote.ownerAndRepo.split(separator: "/").map(String.init)
+                guard parts.count >= 2 else { return false }
+                let orgOnly = parts[0]
+                let subGroupPath = parts.dropLast().joined(separator: "/") // 支持 GitLab 多级 group/subgroup
+                let hostAndOrg = "\(remote.host)/\(orgOnly)"
+                let hostAndSubGroup = "\(remote.host)/\(subGroupPath)"
+
+                if normalizedPattern.contains("/") {
+                    return Self.wildcardOrSubstringMatch(text: hostAndOrg, pattern: normalizedPattern) ||
+                           Self.wildcardOrSubstringMatch(text: hostAndSubGroup, pattern: normalizedPattern) ||
+                           Self.wildcardOrSubstringMatch(text: subGroupPath, pattern: normalizedPattern)
+                } else {
+                    return orgOnly.caseInsensitiveCompare(normalizedPattern) == .orderedSame ||
+                           Self.wildcardOrSubstringMatch(text: orgOnly, pattern: normalizedPattern)
+                }
+            }
         case .exactPath:
             return repo.path == trimmed || repo.displayPath == trimmed
         case .repoName:
@@ -445,6 +514,30 @@ struct RepoFilterRule: Identifiable, Codable, Hashable {
             let remoteStr = (repo.primaryWebURL ?? repo.remotes.first?.fetchURL ?? "")
             return Self.wildcardOrSubstringMatch(text: remoteStr, pattern: trimmed)
         }
+    }
+
+    private static func stripSchemeAndTrailingSlash(_ input: String) -> String {
+        var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["https://", "http://", "ssh://", "git@"] {
+            if s.lowercased().hasPrefix(prefix) {
+                s = String(s.dropFirst(prefix.count))
+            }
+        }
+        while s.hasSuffix("/") {
+            s.removeLast()
+        }
+        return s
+    }
+
+    private static func wildcardOrExactOrSubdomainMatch(host: String, pattern: String) -> Bool {
+        let lowerHost = host.lowercased()
+        let lowerPattern = pattern.lowercased()
+        if lowerHost == lowerPattern { return true }
+        if lowerPattern.hasPrefix("*.") {
+            let suffix = String(lowerPattern.dropFirst(1)) // ".company.com"
+            return lowerHost.hasSuffix(suffix) || lowerHost == String(suffix.dropFirst())
+        }
+        return wildcardOrSubstringMatch(text: lowerHost, pattern: lowerPattern)
     }
 
     private static func wildcardOrSubstringMatch(text: String, pattern: String) -> Bool {

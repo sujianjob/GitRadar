@@ -53,8 +53,8 @@ struct SidebarView: View {
                 )
             }
 
-            // MARK: 2. 托管平台
-            Section("远程平台") {
+            // MARK: 2. 托管平台与域名管理
+            Section {
                 ForEach(GitProvider.allCases) { provider in
                     let count = store.countForProvider(provider)
                     if count > 0 || provider == .github || provider == .gitlab || provider == .gitee || provider == .localOnly {
@@ -66,6 +66,42 @@ struct SidebarView: View {
                             count: count
                         )
                     }
+                }
+
+                // 自动列出当前可见的远程域名（如 github.com、自建 Gitea 域名等）
+                ForEach(store.discoveredHosts.filter { !$0.isExcluded && $0.visibleCount > 0 }) { hostItem in
+                    sidebarRow(
+                        filter: .domain(hostItem.host),
+                        title: hostItem.host,
+                        icon: "network",
+                        dotColor: nil,
+                        count: hostItem.visibleCount
+                    )
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            store.hideRemoteHost(hostItem.host)
+                        } label: {
+                            Label("过滤隐藏域名「\(hostItem.host)」", systemImage: "eye.slash")
+                        }
+                        Button {
+                            store.showFilterRulesSheet = true
+                        } label: {
+                            Label("打开域名与组织管理...", systemImage: "slider.horizontal.3")
+                        }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("远程平台与域名")
+                    Spacer()
+                    Button {
+                        store.showFilterRulesSheet = true
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help("管理远程域名、自建 Gitea 与组织过滤规则")
                 }
             }
 

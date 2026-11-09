@@ -173,7 +173,146 @@ final class RadarStore: ObservableObject {
     }
 
     func hideRepository(_ repo: GitRepository) {
-        addFilterRule(field: .exactPath, pattern: repo.path, note: "手动隐藏：\(repo.name)")
+        addFilterRule(field: .exactPath, pattern: repo.path, note: "手动隐藏仓库：\(repo.name)")
+    }
+
+    func hideRemoteHost(_ host: String) {
+        addFilterRule(field: .remoteHost, pattern: host, note: "屏蔽域名：\(host)")
+    }
+
+    func hideRemoteOrganization(host: String?, org: String) {
+        let pattern = (host != nil && !host!.isEmpty) ? "\(host!)/\(org)" : org
+        addFilterRule(field: .remoteOrganization, pattern: pattern, note: "屏蔽组织：\(pattern)")
+    }
+
+    // MARK: - 域名与组织聚合统计（用于域名与组织管理面板及侧边栏）
+    struct DiscoveredOrgSummary: Identifiable, Hashable {
+        var id: String { "\(host)/\(org)" }
+        let host: String
+        let org: String
+        let totalCount: Int
+        let visibleCount: Int
+        let isExcluded: Bool
+    }
+
+    struct DiscoveredHostSummary: Identifiable, Hashable {
+        var id: String { host }
+        let host: String
+        let provider: GitProvider
+        let totalCount: Int
+        let visibleCount: Int
+        let isExcluded: Bool
+        let organizations: [DiscoveredOrgSummary]
+    }
+
+    var discoveredHosts: [DiscoveredHostSummary] {
+        var hostReposMap: [String: [GitRepository]] = [:]
+        for repo in repositories {
+            for host in repo.allRemoteHosts {
+                hostReposMap[host, default: []].append(repo)
+            }
+        }
+
+        return hostReposMap.keys.sorted().map { host in
+            let reposForHost = hostReposMap[host] ?? []
+            let visibleForHost = reposForHost.filter { !isRepositoryExcluded($0) }
+            let hostExcluded = isHostRuleEnabled(host)
+
+            // 聚合该域名下的所有组织/Owner
+            var orgReposMap: [String: [GitRepository]] = [:]
+            for repo in reposForHost {
+                for r in repo.remotes where r.host == host {
+                    let parts = r.ownerAndRepo.split(separator: "/").map(String.init)
+                    if parts.count >= 2 {
+                        let org = parts[0]
+                        orgReposMap[org, default: []].append(repo)
+                    }
+                }
+            }
+
+            let orgSummaries: [DiscoveredOrgSummary] = orgReposMap.keys.sorted().map { org in
+                let orgRepos = Array(Set(orgReposMap[org] ?? []))
+                let orgVisible = orgRepos.filter { !isRepositoryExcluded($0) }
+                let orgExcluded = hostExcluded || isOrganizationRuleEnabled(host: host, org: org)
+                return DiscoveredOrgSummary(
+                    host: host,
+                    org: org,
+                    totalCount: orgRepos.count,
+                    visibleCount: orgVisible.count,
+                    isExcluded: orgExcluded
+                )
+            }
+
+            return DiscoveredHostSummary(
+                host: host,
+                provider: GitProvider.detect(from: host),
+                totalCount: reposForHost.count,
+                visibleCount: visibleForHost.count,
+                isExcluded: hostExcluded,
+                organizations: orgSummaries
+            )
+        }
+    }
+
+    func isHostRuleEnabled(_ host: String) -> Bool {
+        filterRules.contains {
+            $0.isEnabled &&
+            $0.field == .remoteHost &&
+            $0.pattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == host.lowercased()
+        }
+    }
+
+    func isOrganizationRuleEnabled(host: String, org: String) -> Bool {
+        let combined = "\(host)/\(org)".lowercased()
+        let orgLower = org.lowercased()
+        return filterRules.contains {
+            guard $0.isEnabled && $0.field == .remoteOrganization else { return false }
+            let pat = $0.pattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return pat == combined || pat == orgLower
+        }
+    }
+
+    func toggleHostFilter(_ host: String) {
+        let lower = host.lowercased()
+        if let idx = filterRules.firstIndex(where: { $0.field == .remoteHost && $0.pattern.lowercased() == lower }) {
+            filterRules[idx].isEnabled.toggle()
+            if !filterRules[idx].isEnabled {
+                filterRules.remove(at: idx)
+                showBanner("已恢复显示域名：\(host)")
+            } else {
+                showBanner("已过滤隐藏域名：\(host)")
+            }
+        } else {
+            filterRules.insert(
+                RepoFilterRule(field: .remoteHost, pattern: host, isEnabled: true, note: "按域名屏蔽"),
+                at: 0
+            )
+            showBanner("已过滤隐藏域名：\(host)")
+        }
+        reconcileSelectionAfterFilterChange()
+        saveConfig()
+    }
+
+    func toggleOrganizationFilter(host: String, org: String) {
+        let combined = "\(host)/\(org)"
+        let combinedLower = combined.lowercased()
+        let orgLower = org.lowercased()
+
+        if let idx = filterRules.firstIndex(where: {
+            $0.field == .remoteOrganization &&
+            ($0.pattern.lowercased() == combinedLower || $0.pattern.lowercased() == orgLower)
+        }) {
+            filterRules.remove(at: idx)
+            showBanner("已恢复显示组织：\(combined)")
+        } else {
+            filterRules.insert(
+                RepoFilterRule(field: .remoteOrganization, pattern: combined, isEnabled: true, note: "按组织屏蔽"),
+                at: 0
+            )
+            showBanner("已过滤隐藏组织：\(combined)")
+        }
+        reconcileSelectionAfterFilterChange()
+        saveConfig()
     }
 
     func toggleFilterRule(_ ruleID: UUID) {
@@ -241,6 +380,14 @@ final class RadarStore: ObservableObject {
             list = list.filter { $0.isFavorite }
         case .provider(let provider):
             list = list.filter { $0.primaryProvider == provider }
+        case .domain(let host):
+            list = list.filter { $0.allRemoteHosts.contains(host) }
+        case .organization(let host, let org):
+            list = list.filter { repo in
+                repo.remotes.contains { r in
+                    r.host == host && r.ownerAndRepo.lowercased().hasPrefix("\(org.lowercased())/")
+                }
+            }
         case .group(let groupID):
             list = list.filter { $0.groupIDs.contains(groupID) }
         case .rootDirectory(let rootPath):
