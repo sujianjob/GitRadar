@@ -19,7 +19,7 @@ struct ExternalApp: Identifiable, Hashable, Codable {
 enum ExternalLauncher {
     private static let candidateApps: [(name: String, category: ExternalApp.Category, paths: [String], symbol: String)] = [
         // 编辑器 / IDE
-        ("Antigravity", .editor, ["/Applications/Antigravity.app", "/Applications/Antigravity IDE.app"], "sparkles"),
+        ("Antigravity IDE", .editor, ["/Applications/Antigravity IDE.app", "/Applications/Antigravity.app"], "sparkles"),
         ("VS Code", .editor, ["/Applications/Visual Studio Code.app"], "chevron.left.forwardslash.chevron.right"),
         ("Cursor", .editor, ["/Applications/Cursor.app"], "cursorarrow.rays"),
         ("Zed", .editor, ["/Applications/Zed.app"], "bolt.fill"),
@@ -106,23 +106,30 @@ enum ExternalLauncher {
 
     static func openInAntigravity(path: String) {
         let candidatePaths = [
-            "/Applications/Antigravity.app",
             "/Applications/Antigravity IDE.app",
-            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Antigravity.app"),
-            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Antigravity IDE.app")
+            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Antigravity IDE.app"),
+            "/Applications/Antigravity.app",
+            (NSHomeDirectory() as NSString).appendingPathComponent("Applications/Antigravity.app")
         ]
         if let appPath = candidatePaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
-            let app = ExternalApp(
-                name: "Antigravity IDE",
-                category: .editor,
-                bundlePath: appPath,
-                sfSymbol: "sparkles"
-            )
-            openRepository(path: path, with: app)
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            proc.arguments = ["-a", appPath, path]
+            do {
+                try proc.run()
+            } catch {
+                let app = ExternalApp(
+                    name: "Antigravity IDE",
+                    category: .editor,
+                    bundlePath: appPath,
+                    sfSymbol: "sparkles"
+                )
+                openRepository(path: path, with: app)
+            }
         } else {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            proc.arguments = ["-a", "Antigravity", path]
+            proc.arguments = ["-a", "/Applications/Antigravity IDE.app", path]
             try? proc.run()
         }
     }
