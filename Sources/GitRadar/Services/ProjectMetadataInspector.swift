@@ -350,9 +350,9 @@ enum ProjectMetadataInspector {
         return collapsed.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 截取 README 前面的核心项目简介（前 6~10 行有效内容，约 420 字以内）
+    /// 截取 README 前面的核心项目简介（适配右侧栏 2/5 高度展示区域）
     private static func buildBriefIntro(from cleaned: String) -> String {
-        guard !cleaned.isEmpty else { return "暂无项目简介" }
+        guard !cleaned.isEmpty else { return "" }
         let lines = cleaned.components(separatedBy: .newlines)
         var picked: [String] = []
         var charCount = 0
@@ -360,7 +360,7 @@ enum ProjectMetadataInspector {
         for line in lines {
             picked.append(line)
             charCount += line.count
-            if charCount >= 380 || picked.filter({ !$0.isEmpty }).count >= 8 {
+            if charCount >= 1200 || picked.filter({ !$0.isEmpty }).count >= 24 {
                 break
             }
         }

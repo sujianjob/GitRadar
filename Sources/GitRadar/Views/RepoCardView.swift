@@ -49,6 +49,7 @@ struct RepoCardView: View {
                     Text(repo.healthState.rawValue)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(repo.isDirty || repo.conflictCount > 0 ? repo.healthState.color : .secondary)
+                        .lineLimit(1)
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
@@ -56,9 +57,10 @@ struct RepoCardView: View {
                     RoundedRectangle(cornerRadius: 5)
                         .fill(AppTheme.subtleSurface)
                 )
+                .fixedSize()
             }
 
-            // MARK: 2. 分支、领先/落后计数与工作区改动统计（克制的单色等宽标签）
+            // MARK: 2. 分支、领先/落后计数与工作区改动统计
             HStack(spacing: 6) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.branch")
@@ -66,7 +68,7 @@ struct RepoCardView: View {
                         .foregroundStyle(.secondary)
                     Text(repo.currentBranch)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.primary.opacity(0.88))
+                        .foregroundStyle(Color.primary.opacity(0.88))
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 6)
@@ -94,6 +96,7 @@ struct RepoCardView: View {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(AppTheme.subtleSurface)
                     )
+                    .fixedSize()
                 }
 
                 if repo.stagedCount > 0 {
@@ -111,6 +114,8 @@ struct RepoCardView: View {
                 Text(repo.primaryProvider.rawValue)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
 
             // MARK: 3. 项目简介单行预览 或 最后一次提交信息
@@ -141,71 +146,42 @@ struct RepoCardView: View {
                     Text(rel)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
+                        .fixedSize()
                 }
             }
 
             Divider()
                 .opacity(0.45)
 
-            // MARK: 4. 底部工具栏（外部打开 + 三次确认保护的一键 Git 操作）
+            // MARK: 4. 底部工具栏（仅保留 Finder 与远程主页，固定尺寸防变形）
             HStack(spacing: 6) {
-                if let editor = store.preferredEditor {
-                    toolButton(title: editor.name, icon: editor.sfSymbol) {
-                        ExternalLauncher.openRepository(path: repo.path, with: editor)
-                    }
-                }
-
-                if let term = store.preferredTerminal {
-                    toolButton(title: term.name, icon: term.sfSymbol) {
-                        ExternalLauncher.openRepository(path: repo.path, with: term)
-                    }
-                }
-
                 toolButton(title: "Finder", icon: "folder") {
                     ExternalLauncher.openInFinder(path: repo.path)
                 }
 
                 if let webURL = repo.primaryWebURL {
-                    toolButton(title: "远程主页", icon: "arrow.up.right.square") {
+                    toolButton(title: "远程主页", icon: "safari") {
                         ExternalLauncher.openInBrowser(urlString: webURL)
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 4)
 
                 if !repo.remotes.isEmpty {
-                    Button {
+                    toolButton(title: "Fetch", icon: "arrow.triangle.2.circlepath") {
                         store.requestFetchRepository(repo)
-                    } label: {
-                        Text("Fetch")
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderless)
-                    .help("同步远程分支引用（需三次确认）")
 
                     if repo.behindCount > 0 {
-                        Button {
+                        toolButton(title: "Pull ↓\(repo.behindCount)", icon: "arrow.down.to.line", highlight: AppTheme.statusSync) {
                             store.requestPullRepository(repo)
-                        } label: {
-                            Text("Pull ↓\(repo.behindCount)")
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundStyle(AppTheme.statusSync)
                         }
-                        .buttonStyle(.borderless)
-                        .help("拉取远程更新（需三次确认）")
                     }
 
                     if repo.aheadCount > 0 {
-                        Button {
+                        toolButton(title: "Push ↑\(repo.aheadCount)", icon: "arrow.up.to.line", highlight: AppTheme.statusSync) {
                             store.requestPushRepository(repo)
-                        } label: {
-                            Text("Push ↑\(repo.aheadCount)")
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundStyle(AppTheme.statusSync)
                         }
-                        .buttonStyle(.borderless)
-                        .help("推送本地提交（需三次确认）")
                     }
                 }
             }
@@ -239,6 +215,7 @@ struct RepoCardView: View {
             Text(text)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2.5)
@@ -246,30 +223,33 @@ struct RepoCardView: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(AppTheme.subtleSurface)
         )
+        .fixedSize()
     }
 
-    private func toolButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func toolButton(title: String, icon: String, highlight: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 3.5) {
+            HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(highlight ?? .secondary)
                 Text(title)
                     .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.82))
+                    .foregroundStyle(highlight ?? Color.primary.opacity(0.85))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 6.5)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(AppTheme.subtleSurface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
-                    .stroke(AppTheme.hairlineBorder, lineWidth: 0.8)
+                    .stroke(highlight?.opacity(0.45) ?? AppTheme.hairlineBorder, lineWidth: 0.8)
             )
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: true)
     }
 
     @ViewBuilder
@@ -293,26 +273,6 @@ struct RepoCardView: View {
 
         Divider()
 
-        Menu("在编辑器 / IDE 中打开") {
-            ForEach(store.installedEditors) { app in
-                Button {
-                    ExternalLauncher.openRepository(path: repo.path, with: app)
-                } label: {
-                    Label(app.name, systemImage: app.sfSymbol)
-                }
-            }
-        }
-
-        Menu("在终端中打开") {
-            ForEach(store.installedTerminals) { app in
-                Button {
-                    ExternalLauncher.openRepository(path: repo.path, with: app)
-                } label: {
-                    Label(app.name, systemImage: app.sfSymbol)
-                }
-            }
-        }
-
         Button {
             ExternalLauncher.openInFinder(path: repo.path)
         } label: {
@@ -323,7 +283,7 @@ struct RepoCardView: View {
             Button {
                 ExternalLauncher.openInBrowser(urlString: webURL)
             } label: {
-                Label("在浏览器打开远程主页 (\(repo.primaryProvider.rawValue))", systemImage: "safari")
+                Label("打开远程主页 (\(repo.primaryProvider.rawValue))", systemImage: "safari")
             }
         }
 

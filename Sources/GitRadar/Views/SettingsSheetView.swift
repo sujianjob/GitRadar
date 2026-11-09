@@ -43,32 +43,6 @@ struct SettingsSheetView: View {
 
     private var generalSettingsTab: some View {
         Form {
-            Section("快捷外部工具默认首选项") {
-                Picker("默认编辑器 / IDE：", selection: Binding(
-                    get: { store.preferredEditorPath ?? "" },
-                    set: {
-                        store.preferredEditorPath = $0.isEmpty ? nil : $0
-                        store.saveConfig()
-                    }
-                )) {
-                    ForEach(store.installedEditors) { app in
-                        Text(app.name).tag(app.bundlePath)
-                    }
-                }
-
-                Picker("默认终端工具：", selection: Binding(
-                    get: { store.preferredTerminalPath ?? "" },
-                    set: {
-                        store.preferredTerminalPath = $0.isEmpty ? nil : $0
-                        store.saveConfig()
-                    }
-                )) {
-                    ForEach(store.installedTerminals) { app in
-                        Text(app.name).tag(app.bundlePath)
-                    }
-                }
-            }
-
             Section("目录递归扫描配置") {
                 Stepper(
                     "默认最大递归扫描深度：\(store.defaultScanDepth) 层",

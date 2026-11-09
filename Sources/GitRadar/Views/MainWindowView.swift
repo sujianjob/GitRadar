@@ -157,10 +157,12 @@ struct MainWindowView: View {
                             .font(.system(size: 10.5))
                         Text("批量 Fetch")
                             .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
                     }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .fixedSize()
                 .help("并发拉取远程引用（需三次确认）")
 
                 if store.behindReposCount > 0 {
@@ -172,10 +174,12 @@ struct MainWindowView: View {
                                 .font(.system(size: 10.5))
                             Text("一键 Pull (\(store.behindReposCount))")
                                 .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
                         }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .fixedSize()
                     .help("批量更新落后仓库（需三次确认）")
                 }
 
@@ -228,6 +232,7 @@ struct MainWindowView: View {
             )
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: true)
     }
 
     // MARK: - 视图模式 1：响应式卡片网格
@@ -338,25 +343,7 @@ struct MainWindowView: View {
             .width(min: 150, ideal: 220)
 
             TableColumn("操作") { repo in
-                HStack(spacing: 6) {
-                    if let editor = store.preferredEditor {
-                        Button {
-                            ExternalLauncher.openRepository(path: repo.path, with: editor)
-                        } label: {
-                            Image(systemName: editor.sfSymbol)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("在 \(editor.name) 中打开")
-                    }
-                    if let term = store.preferredTerminal {
-                        Button {
-                            ExternalLauncher.openRepository(path: repo.path, with: term)
-                        } label: {
-                            Image(systemName: term.sfSymbol)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("在 \(term.name) 中打开")
-                    }
+                HStack(spacing: 8) {
                     Button {
                         ExternalLauncher.openInFinder(path: repo.path)
                     } label: {
@@ -364,9 +351,19 @@ struct MainWindowView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("在 Finder 中打开")
+
+                    if let webURL = repo.primaryWebURL {
+                        Button {
+                            ExternalLauncher.openInBrowser(urlString: webURL)
+                        } label: {
+                            Image(systemName: "safari")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("打开远程主页")
+                    }
                 }
             }
-            .width(min: 80, ideal: 95)
+            .width(min: 65, ideal: 80)
         }
     }
 
