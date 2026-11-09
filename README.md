@@ -12,22 +12,22 @@
    - 支持添加多个本地根目录（如 `~/AI`、`~/Projects`、`~/Work`）或直接拖拽文件夹进入窗口，自动递归扫描所有 `.git` 仓库（自动跳过 `node_modules`、`.build`、`Pods`、`venv`、`target` 等目录）。
    - 支持创建**虚拟分组 / 标签**（不移动硬盘上的真实目录），支持星标收藏置顶。
 
-2. **全平台远程识别（不止 GitHub）**
+2. **全平台远程识别与完整仓库地址展示**
    - 自动解析 `SSH` (`git@host:owner/repo.git`) 与 `HTTP/HTTPS` 远程地址。
-   - 自动识别 **GitHub、GitLab、Gitee、Bitbucket、Codeberg/Gitea、CNB/Coding、自建 Git 服务** 与 **仅本地仓库**，展示专属平台徽章并支持一键打开对应的远程 Web 主页。
+   - 自动识别 **GitHub、GitLab、Gitee、Bitbucket、Codeberg/Gitea、CNB/Coding、自建 Git 服务** 与 **仅本地仓库**，在项目卡片右下角直观展示完整仓库地址，并支持一键打开对应的 **Finder 目录** 或 **远程 Web 主页**。
 
-3. **仓库状态全景看板（卡片网格 & 紧凑表格双视图）**
-   - 顶部全景 KPI 雷达指标卡：监控总数、未提交改动、待推送 (`Ahead`)、待拉取 (`Behind`)、已同步健康数，点击指标卡即可一键过滤。
-   - 实时展示每个仓库的当前分支、领先/落后远程 Commit 数、暂存 (`Staged`) / 修改 (`Modified`) / 未跟踪 (`Untracked`) / `Stash` 计数、最近一次提交摘要与相对时间。
+3. **多级项目真实图标获取与技术栈识别**
+   - 自动扫描仓库本地图标（`AppIcon`、`logo/`、`public/`、`favicon` 及 `README` 引用图标）。
+   - 自动拉取并本地缓存远程仓库组织/作者官方头像（如 GitHub / GitLab Owner Avatar）。
+   - 对无图片纯本地项目自动检测技术栈（`Swift`、`Python`、`TypeScript`、`Node.js`、`Rust`、`Go`、`AI Skill` 等），生成差异化的双字母专属徽标与技术栈角标。
 
-4. **快捷外部工具联动**
-   - 自动检测本机已安装的 IDE / 编辑器（如 **Antigravity、VS Code、Cursor、Zed、PyCharm、GoLand、IntelliJ IDEA、Android Studio、Xcode** 等）与终端工具（**Warp、iTerm2、Termora、系统 Terminal**）。
-   - 一键在首选 IDE、终端、Finder 或浏览器中打开目标仓库。
+4. **克制专业的桌面视觉 + 右侧栏 README 简介预览**
+   - 借鉴 **Linear / Fork / GitHub Desktop** 的石墨灰与岩石蓝配色体系，顶部提供紧凑型分段状态过滤条（全部、未提交改动、待推送、待拉取、已同步）。
+   - 点击任意项目后，右侧详情栏上方 **≥ 2/5 高度区域直接展示该项目的 README 简介摘要**（支持一键展开全文；无 README 的项目自动留空），下方提供**工作区变更列表**、**最近提交历史**与**远程/分支管理**。
 
-5. **内置快捷 Git 操作与彩色 Diff 预览**
-   - 支持单仓与批量 **Fetch All**、**Pull (`--rebase` 可选)**、**Push**。
-   - 支持快速切换本地分支、基于当前分支新建分支 (`git checkout -b`)。
-   - 右侧详情面板内置 **变更文件列表 + 语法高亮 Unified Diff 预览**、**一键 Stage All & Commit (+ Push)**、**最近 20 条 Commit 历史查看** 以及 **多 Remote 管理**。
+5. **安全第一：一键 Git 操作「三次风险确认」机制**
+   - 支持顶部批量 **Fetch / Pull**，以及右侧详情栏右上角的单仓 **Fetch / Pull / Push**、**本地分支切换/新建**、**快捷提交**与**单文件放弃修改**。
+   - 所有一键 Git 操作均内置 **三步递进风险确认弹窗**（核对目标与命令 → 评估冲突/覆盖风险 → 最终执行授权），确认三次后才真正执行底层 Git 命令。
 
 ---
 
