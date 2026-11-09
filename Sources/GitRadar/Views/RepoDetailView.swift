@@ -23,34 +23,37 @@ struct RepoDetailView: View {
     var body: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
-                // MARK: 1. 顶部仓库信息与操作工具栏（固定防变形按钮）
+                // MARK: 1. 顶部仓库信息与右上角操作栏（带充足右边距）
                 headerSection
-                    .padding(.horizontal, 16)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 20)
                     .padding(.vertical, 12)
+                    .frame(width: geo.size.width)
                     .background(AppTheme.canvasBackground)
 
                 Divider()
 
                 // MARK: 2. 上方 README 简介区域（至少占右侧栏总高度的 2/5，无 README 时留空）
                 readmeOverviewSection
-                    .frame(height: max(220, geo.size.height * 0.42))
-                    .frame(maxWidth: .infinity)
+                    .frame(width: geo.size.width, height: max(220, geo.size.height * 0.42))
                     .background(AppTheme.cardBackground)
 
                 Divider()
 
-                // MARK: 3. 下方标签页切换器（已移除 Diff 板块）
+                // MARK: 3. 下方标签页切换器（带充足右边距）
                 HStack {
                     Picker("", selection: $selectedTab) {
-                        Text("工作区变更 (\(repo.changedFiles.count))").tag(InspectorTab.changes)
-                        Text("提交历史 (\(repo.recentCommits.count))").tag(InspectorTab.commits)
-                        Text("远程与分支 (\(repo.remotes.count))").tag(InspectorTab.remotes)
+                        Text("变更 (\(repo.changedFiles.count))").tag(InspectorTab.changes)
+                        Text("提交 (\(repo.recentCommits.count))").tag(InspectorTab.commits)
+                        Text("远程 (\(repo.remotes.count))").tag(InspectorTab.remotes)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
-                .padding(.horizontal, 16)
+                .padding(.leading, 16)
+                .padding(.trailing, 20)
                 .padding(.vertical, 8)
+                .frame(width: geo.size.width)
                 .background(AppTheme.canvasBackground)
 
                 Divider()
@@ -66,7 +69,8 @@ struct RepoDetailView: View {
                         remotesAndBranchesTab
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: geo.size.width)
+                .frame(maxHeight: .infinity)
             }
         }
         .onChange(of: repo.id) { _, _ in
@@ -74,26 +78,19 @@ struct RepoDetailView: View {
         }
     }
 
-    // MARK: - 1. 头部与按钮栏（仅保留 Finder 与远程主页，防挤压变形）
+    // MARK: - 1. 头部：右上角放置 Fetch / Pull / Push 按钮，第二行放置 Finder / 远程主页 / 分支
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // 第一行：图标 + 仓库名 + 路径 + 收藏/分组
-            HStack(alignment: .center, spacing: 10) {
-                ProjectAvatarView(repo: repo, size: 40)
+            // 第一行：左侧项目图标+名称，右上角显示 Fetch / Pull / Push 按钮
+            HStack(alignment: .top, spacing: 10) {
+                ProjectAvatarView(repo: repo, size: 38)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
                         Text(repo.name)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .lineLimit(1)
-
-                        Text(repo.techStack.rawValue)
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(AppTheme.subtleSurface))
-                            .foregroundStyle(.secondary)
-                            .fixedSize()
+                            .truncationMode(.tail)
 
                         if isBusy {
                             ProgressView()
@@ -101,9 +98,9 @@ struct RepoDetailView: View {
                         }
                     }
 
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Text(repo.displayPath)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -113,7 +110,7 @@ struct RepoDetailView: View {
                             store.showBanner("已复制路径：\(repo.path)")
                         } label: {
                             Image(systemName: "doc.on.doc")
-                                .font(.system(size: 9.5))
+                                .font(.system(size: 9))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -121,44 +118,37 @@ struct RepoDetailView: View {
                     }
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: 6)
 
-                Button {
-                    store.toggleFavorite(for: repo.id)
-                } label: {
-                    Image(systemName: repo.isFavorite ? "star.fill" : "star")
-                        .font(.system(size: 14))
-                        .foregroundStyle(repo.isFavorite ? AppTheme.statusDirty : .secondary)
-                }
-                .buttonStyle(.plain)
-                .help("星标收藏")
+                // 右上角：Fetch / Pull / Push 操作按钮组
+                if !repo.remotes.isEmpty {
+                    HStack(spacing: 5) {
+                        compactActionButton(title: "Fetch", icon: "arrow.triangle.2.circlepath", disabled: isBusy) {
+                            store.requestFetchRepository(repo)
+                        }
 
-                Menu {
-                    ForEach(store.groups) { grp in
-                        let selected = repo.groupIDs.contains(grp.id)
-                        Button {
-                            store.toggleGroup(grp.id, for: repo.id)
-                        } label: {
-                            Label(grp.name, systemImage: selected ? "checkmark.circle.fill" : "circle")
+                        compactActionButton(
+                            title: repo.behindCount > 0 ? "Pull ↓\(repo.behindCount)" : "Pull",
+                            icon: "arrow.down.to.line",
+                            highlightColor: repo.behindCount > 0 ? AppTheme.statusSync : nil,
+                            disabled: isBusy
+                        ) {
+                            store.requestPullRepository(repo)
+                        }
+
+                        compactActionButton(
+                            title: repo.aheadCount > 0 ? "Push ↑\(repo.aheadCount)" : "Push",
+                            icon: "arrow.up.to.line",
+                            highlightColor: repo.aheadCount > 0 ? AppTheme.statusSync : nil,
+                            disabled: isBusy
+                        ) {
+                            store.requestPushRepository(repo)
                         }
                     }
-                    Divider()
-                    Button {
-                        store.showNewGroupSheet = true
-                    } label: {
-                        Label("新建分组...", systemImage: "plus")
-                    }
-                } label: {
-                    Image(systemName: "tag")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("归入虚拟分组")
             }
 
-            // 第二行：左侧仅保留 Finder 与 远程主页，右侧为分支与 Git 同步按钮（全部固定尺寸不折行不变形）
+            // 第二行：Finder、远程主页、分支切换、收藏与分组
             HStack(spacing: 6) {
                 compactActionButton(title: "Finder", icon: "folder") {
                     ExternalLauncher.openInFinder(path: repo.path)
@@ -169,8 +159,6 @@ struct RepoDetailView: View {
                         ExternalLauncher.openInBrowser(urlString: webURL)
                     }
                 }
-
-                Spacer(minLength: 6)
 
                 // 分支切换菜单
                 Menu {
@@ -200,14 +188,13 @@ struct RepoDetailView: View {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 10))
                         Text(repo.currentBranch)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                             .lineLimit(1)
-                            .frame(maxWidth: 110, alignment: .leading)
                     }
                 }
                 .menuStyle(.borderedButton)
                 .controlSize(.small)
-                .fixedSize()
+                .frame(maxWidth: 130, alignment: .leading)
                 .popover(isPresented: $showNewBranchPopover) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("新建并切换分支 (git checkout -b)")
@@ -233,29 +220,41 @@ struct RepoDetailView: View {
                     .padding(12)
                 }
 
-                if !repo.remotes.isEmpty {
-                    compactActionButton(title: "Fetch", icon: "arrow.triangle.2.circlepath", disabled: isBusy) {
-                        store.requestFetchRepository(repo)
-                    }
+                Spacer(minLength: 4)
 
-                    compactActionButton(
-                        title: repo.behindCount > 0 ? "Pull ↓\(repo.behindCount)" : "Pull",
-                        icon: "arrow.down.to.line",
-                        highlightColor: repo.behindCount > 0 ? AppTheme.statusSync : nil,
-                        disabled: isBusy
-                    ) {
-                        store.requestPullRepository(repo)
-                    }
-
-                    compactActionButton(
-                        title: repo.aheadCount > 0 ? "Push ↑\(repo.aheadCount)" : "Push",
-                        icon: "arrow.up.to.line",
-                        highlightColor: repo.aheadCount > 0 ? AppTheme.statusSync : nil,
-                        disabled: isBusy
-                    ) {
-                        store.requestPushRepository(repo)
-                    }
+                Button {
+                    store.toggleFavorite(for: repo.id)
+                } label: {
+                    Image(systemName: repo.isFavorite ? "star.fill" : "star")
+                        .font(.system(size: 13))
+                        .foregroundStyle(repo.isFavorite ? AppTheme.statusDirty : .secondary)
                 }
+                .buttonStyle(.plain)
+                .help("星标收藏")
+
+                Menu {
+                    ForEach(store.groups) { grp in
+                        let selected = repo.groupIDs.contains(grp.id)
+                        Button {
+                            store.toggleGroup(grp.id, for: repo.id)
+                        } label: {
+                            Label(grp.name, systemImage: selected ? "checkmark.circle.fill" : "circle")
+                        }
+                    }
+                    Divider()
+                    Button {
+                        store.showNewGroupSheet = true
+                    } label: {
+                        Label("新建分组...", systemImage: "plus")
+                    }
+                } label: {
+                    Image(systemName: "tag")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("归入虚拟分组")
             }
         }
     }
@@ -268,16 +267,16 @@ struct RepoDetailView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3.5) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(highlightColor ?? .secondary)
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(highlightColor ?? .primary.opacity(0.88))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(highlightColor ?? Color.primary.opacity(0.88))
                     .lineLimit(1)
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 5)
@@ -344,7 +343,8 @@ struct RepoDetailView: View {
                         .stroke(AppTheme.hairlineBorder, lineWidth: 1)
                 )
             }
-            .padding(.horizontal, 16)
+            .padding(.leading, 16)
+            .padding(.trailing, 20)
             .padding(.vertical, 12)
         } else {
             // 项目没有 README 时完全留空，不显示任何“未检测到 xxx”提示文字
@@ -352,7 +352,7 @@ struct RepoDetailView: View {
         }
     }
 
-    // MARK: - 3A. 工作区变更列表（已去掉底部 Diff 板块）
+    // MARK: - 3A. 工作区变更列表
     private var changesListTab: some View {
         VStack(spacing: 0) {
             if repo.changedFiles.isEmpty {
@@ -368,8 +368,8 @@ struct RepoDetailView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // 快速提交栏（三次安全确认）
-                HStack(spacing: 8) {
+                // 快速提交栏（带充足右边距）
+                HStack(spacing: 6) {
                     TextField("输入提交信息 (Commit Message)...", text: $commitMessage)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 11.5))
@@ -405,7 +405,8 @@ struct RepoDetailView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.leading, 14)
+                .padding(.trailing, 20)
                 .padding(.vertical, 8)
                 .background(AppTheme.subtleSurface)
 
@@ -434,6 +435,7 @@ struct RepoDetailView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize()
                     }
+                    .padding(.trailing, 8)
                     .padding(.vertical, 2)
                     .contextMenu {
                         Button {
@@ -484,6 +486,7 @@ struct RepoDetailView: View {
                     Text(commit.relativeDate)
                         .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .fixedSize()
                 }
 
                 Text(commit.subject)
@@ -494,6 +497,7 @@ struct RepoDetailView: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
+            .padding(.trailing, 8)
             .padding(.vertical, 3)
             .contextMenu {
                 Button {
@@ -558,8 +562,11 @@ struct RepoDetailView: View {
                             Text(remote.fetchURL)
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                                 .textSelection(.enabled)
                         }
+                        .padding(.trailing, 8)
                         .padding(.vertical, 3)
                     }
                 }
@@ -573,6 +580,7 @@ struct RepoDetailView: View {
                             .frame(width: 6, height: 6)
                         Text(br)
                             .font(.system(size: 11.5, weight: br == repo.currentBranch ? .semibold : .regular, design: .monospaced))
+                            .lineLimit(1)
                         Spacer()
                         if br != repo.currentBranch {
                             Button("切换") {
@@ -586,6 +594,7 @@ struct RepoDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .padding(.trailing, 8)
                 }
             }
 
@@ -595,6 +604,8 @@ struct RepoDetailView: View {
                         Text(rbr)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .padding(.trailing, 8)
                     }
                 }
             }

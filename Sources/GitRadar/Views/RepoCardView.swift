@@ -153,7 +153,7 @@ struct RepoCardView: View {
             Divider()
                 .opacity(0.45)
 
-            // MARK: 4. 底部工具栏（仅保留 Finder 与远程主页，固定尺寸防变形）
+            // MARK: 4. 底部工具栏（仅保留 Finder 与远程主页，移除右下角 Fetch/Push）
             HStack(spacing: 6) {
                 toolButton(title: "Finder", icon: "folder") {
                     ExternalLauncher.openInFinder(path: repo.path)
@@ -167,22 +167,12 @@ struct RepoCardView: View {
 
                 Spacer(minLength: 4)
 
-                if !repo.remotes.isEmpty {
-                    toolButton(title: "Fetch", icon: "arrow.triangle.2.circlepath") {
-                        store.requestFetchRepository(repo)
-                    }
-
-                    if repo.behindCount > 0 {
-                        toolButton(title: "Pull ↓\(repo.behindCount)", icon: "arrow.down.to.line", highlight: AppTheme.statusSync) {
-                            store.requestPullRepository(repo)
-                        }
-                    }
-
-                    if repo.aheadCount > 0 {
-                        toolButton(title: "Push ↑\(repo.aheadCount)", icon: "arrow.up.to.line", highlight: AppTheme.statusSync) {
-                            store.requestPushRepository(repo)
-                        }
-                    }
+                if let slug = repo.primaryRemoteSlug, !slug.isEmpty {
+                    Text(slug)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
         }
@@ -293,24 +283,6 @@ struct RepoCardView: View {
             Task { await store.refreshRepository(id: repo.id) }
         } label: {
             Label("刷新本地状态", systemImage: "arrow.clockwise")
-        }
-
-        if !repo.remotes.isEmpty {
-            Button {
-                store.requestFetchRepository(repo)
-            } label: {
-                Label("Git Fetch（三次确认后执行）", systemImage: "arrow.triangle.2.circlepath")
-            }
-            Button {
-                store.requestPullRepository(repo)
-            } label: {
-                Label("Git Pull（三次确认后执行）", systemImage: "arrow.down.circle")
-            }
-            Button {
-                store.requestPushRepository(repo)
-            } label: {
-                Label("Git Push（三次确认后执行）", systemImage: "arrow.up.circle")
-            }
         }
 
         Divider()

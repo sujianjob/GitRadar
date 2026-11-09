@@ -9,15 +9,17 @@ struct MainWindowView: View {
             SidebarView(store: store)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 280)
         } detail: {
-            HSplitView {
+            HStack(spacing: 0) {
                 // 中间主列表区域
                 dashboardContent
-                    .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
 
-                // 右侧仓库详情与 README 简介面板
+                // 右侧仓库详情与 README 简介面板（固定宽度并严守窗口内边界，绝不溢出裁剪）
                 if store.showDetailInspector, let selectedRepo = store.selectedRepository {
+                    Divider()
                     RepoDetailView(repo: selectedRepo, store: store)
-                        .frame(minWidth: 380, idealWidth: 440, maxWidth: 560, maxHeight: .infinity)
+                        .frame(width: 410)
+                        .frame(maxHeight: .infinity)
                 }
             }
         }
