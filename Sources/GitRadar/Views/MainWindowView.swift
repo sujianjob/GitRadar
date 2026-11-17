@@ -15,11 +15,24 @@ struct MainWindowView: View {
                     .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
 
                 // 右侧仓库详情与 README 简介面板（固定宽度并严守窗口内边界，绝不溢出裁剪）
-                if store.showDetailInspector, let selectedRepo = store.selectedRepository {
-                    Divider()
-                    RepoDetailView(repo: selectedRepo, store: store)
-                        .frame(width: 410)
-                        .frame(maxHeight: .infinity)
+                if store.showDetailInspector {
+                    if store.selectedFilter.isStarredSection {
+                        if let selectedStarred = store.selectedStarredRepository {
+                            Divider()
+                            StarredRepoDetailView(
+                                repo: selectedStarred,
+                                localRepo: store.localRepository(matching: selectedStarred),
+                                store: store
+                            )
+                            .frame(width: 410)
+                            .frame(maxHeight: .infinity)
+                        }
+                    } else if let selectedRepo = store.selectedRepository {
+                        Divider()
+                        RepoDetailView(repo: selectedRepo, store: store)
+                            .frame(width: 410)
+                            .frame(maxHeight: .infinity)
+                    }
                 }
             }
         }
@@ -88,15 +101,28 @@ struct MainWindowView: View {
                 .background(AppTheme.subtleSurface)
             }
 
-            // 3. 仓库列表主体（卡片网格 or 表格视图）
-            if store.filteredRepositories.isEmpty {
-                emptyStateView
+            // 3. 仓库列表主体（卡片网格 or 表格视图，自动切换本地仓库与远程 Star 仓库）
+            if store.selectedFilter.isStarredSection {
+                if store.filteredStarredRepositories.isEmpty {
+                    starredEmptyStateView
+                } else {
+                    switch store.viewMode {
+                    case .grid:
+                        starredGridRepositoriesView
+                    case .table:
+                        starredTableRepositoriesView
+                    }
+                }
             } else {
-                switch store.viewMode {
-                case .grid:
-                    gridRepositoriesView
-                case .table:
-                    tableRepositoriesView
+                if store.filteredRepositories.isEmpty {
+                    emptyStateView
+                } else {
+                    switch store.viewMode {
+                    case .grid:
+                        gridRepositoriesView
+                    case .table:
+                        tableRepositoriesView
+                    }
                 }
             }
         }
@@ -113,7 +139,10 @@ struct MainWindowView: View {
                     Text(currentFilterTitle)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.primary)
-                    Text("\(store.filteredRepositories.count)")
+                    let displayCount = store.selectedFilter.isStarredSection
+                        ? store.filteredStarredRepositories.count
+                        : store.filteredRepositories.count
+                    Text("\(displayCount)")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
@@ -130,49 +159,57 @@ struct MainWindowView: View {
 
                 Spacer()
 
-                // 过滤规则入口按钮（直接打开设置中的「过滤管理」Tab）
-                Button {
-                    store.openSettings(tab: .filter)
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: store.excludedRepositories.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(store.excludedRepositories.isEmpty ? Color.secondary : AppTheme.accent)
-                        Text(store.excludedRepositories.isEmpty ? "过滤规则" : "已过滤 (\(store.excludedRepositories.count))")
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .fixedSize()
-                .help("打开设置 → 过滤管理")
-
-                // 批量操作按钮（接入三次风险确认）
-                Button {
-                    store.requestBatchFetchAllVisible()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 10.5))
-                        Text("批量 Fetch")
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .fixedSize()
-                .help("并发拉取远程引用（需三次确认）")
-
-                if store.behindReposCount > 0 {
+                if store.selectedFilter.isStarredSection {
+                    // 默认 Clone 目录状态按钮（点击直接打开「设置 → 远程 Star」配置或选择目录）
                     Button {
-                        store.requestBatchPullAllBehind()
+                        store.openSettings(tab: .githubStars)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.down.to.line")
+                            Image(systemName: store.formattedDefaultCloneDirectory != nil ? "folder.fill.badge.gearshape" : "folder.badge.questionmark")
                                 .font(.system(size: 10.5))
-                            Text("一键 Pull (\(store.behindReposCount))")
+                                .foregroundStyle(store.formattedDefaultCloneDirectory != nil ? AppTheme.accent : Color.secondary)
+                            if let defDir = store.formattedDefaultCloneDirectory {
+                                Text("默认 Clone: \(defDir)")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .lineLimit(1)
+                            } else {
+                                Text("Clone 目录: 每次询问")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help("点击配置远程 Star 默认 Clone 目录（设置后一键 Clone 不再弹窗选择目录）")
+
+                    if case .starredAccount(let username) = store.selectedFilter,
+                       let acc = store.githubStarAccounts.first(where: { $0.username.caseInsensitiveCompare(username) == .orderedSame }) {
+                        Button {
+                            store.beginEditingGitHubAccount(acc)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 10.5))
+                                Text("编辑账号")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .fixedSize()
+                        .help("修改 @\(acc.username) 的用户名、备注或 Token")
+                    }
+
+                    Button {
+                        store.beginAddGitHubAccount()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 10.5))
+                            Text("添加账号")
                                 .font(.system(size: 11, weight: .medium))
                                 .lineLimit(1)
                         }
@@ -180,20 +217,110 @@ struct MainWindowView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .fixedSize()
-                    .help("批量更新落后仓库（需三次确认）")
-                }
+                    .help("添加或配置多个 GitHub 账号")
 
-                Picker("", selection: $store.sortOption) {
-                    ForEach(RepoSortOption.allCases, id: \.self) { opt in
-                        Text(opt.rawValue).tag(opt)
+                    Button {
+                        Task {
+                            if case .starredAccount(let username) = store.selectedFilter,
+                               let acc = store.githubStarAccounts.first(where: { $0.username.caseInsensitiveCompare(username) == .orderedSame }) {
+                                await store.syncGitHubStars(for: acc)
+                            } else {
+                                await store.syncAllGitHubStars()
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 10.5))
+                            Text(store.isSyncingStars ? "同步中..." : "同步 Star")
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                        }
                     }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(width: 145)
-                .onChange(of: store.sortOption) { _, _ in
-                    store.saveConfig()
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(store.isSyncingStars)
+                    .help("从 GitHub 同步最新 Star 仓库数据")
+
+                    Picker("", selection: $store.starredSortOption) {
+                        ForEach(StarredRepoSortOption.allCases, id: \.self) { opt in
+                            Text(opt.rawValue).tag(opt)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: 145)
+                    .onChange(of: store.starredSortOption) { _, _ in
+                        store.saveConfig()
+                    }
+                } else {
+                    // 过滤规则入口按钮（直接打开设置中的「过滤管理」Tab）
+                    Button {
+                        store.openSettings(tab: .filter)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: store.excludedRepositories.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(store.excludedRepositories.isEmpty ? Color.secondary : AppTheme.accent)
+                            Text(store.excludedRepositories.isEmpty ? "过滤规则" : "已过滤 (\(store.excludedRepositories.count))")
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help("打开设置 → 过滤管理")
+
+                    // 批量操作按钮（接入三次风险确认）
+                    Button {
+                        store.requestBatchFetchAllVisible()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 10.5))
+                            Text("批量 Fetch")
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help("并发拉取远程引用（需三次确认）")
+
+                    if store.behindReposCount > 0 {
+                        Button {
+                            store.requestBatchPullAllBehind()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down.to.line")
+                                    .font(.system(size: 10.5))
+                                Text("一键 Pull (\(store.behindReposCount))")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .fixedSize()
+                        .help("批量更新落后仓库（需三次确认）")
+                    }
+
+                    Picker("", selection: $store.sortOption) {
+                        ForEach(RepoSortOption.allCases, id: \.self) { opt in
+                            Text(opt.rawValue).tag(opt)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: 145)
+                    .onChange(of: store.sortOption) { _, _ in
+                        store.saveConfig()
+                    }
                 }
             }
         }
@@ -211,6 +338,14 @@ struct MainWindowView: View {
             return "待拉取更新"
         case .favorites:
             return "星标常用"
+        case .starredAll:
+            return "全部远程 Star"
+        case .starredRecentUpdated:
+            return "近期版本更新"
+        case .starredCloned:
+            return "本机已克隆 Star"
+        case .starredAccount(let username):
+            return "@\(username) 的 Star"
         case .provider(let provider):
             return provider.rawValue
         case .group(let groupID):
@@ -236,6 +371,14 @@ struct MainWindowView: View {
             return "arrow.down.left"
         case .favorites:
             return "star"
+        case .starredAll:
+            return "star.circle"
+        case .starredRecentUpdated:
+            return "sparkles"
+        case .starredCloned:
+            return "checkmark.circle"
+        case .starredAccount:
+            return "person.crop.circle"
         case .provider(let provider):
             return provider.sfSymbol
         case .group(let groupID):
@@ -411,6 +554,215 @@ struct MainWindowView: View {
         }
     }
 
+    // MARK: - 远程 Star 视图模式 1：响应式卡片网格
+    private var starredGridRepositoriesView: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 310, maximum: 460), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(store.filteredStarredRepositories) { repo in
+                    StarredRepoCardView(
+                        repo: repo,
+                        localRepo: store.localRepository(matching: repo),
+                        isSelected: store.selectedStarredRepoID == repo.id,
+                        isCloning: store.cloningStarredIDs.contains(repo.id),
+                        store: store
+                    )
+                    .onTapGesture {
+                        store.selectedStarredRepoID = repo.id
+                        if !store.showDetailInspector {
+                            store.showDetailInspector = true
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    // MARK: - 远程 Star 视图模式 2：紧凑表格视图
+    private var starredTableRepositoriesView: some View {
+        Table(store.filteredStarredRepositories, selection: $store.selectedStarredRepoID) {
+            TableColumn("Star 项目") { repo in
+                let local = store.localRepository(matching: repo)
+                HStack(spacing: 8) {
+                    ProjectAvatarView(starredRepo: repo, localIconPath: local?.projectIconPath, size: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(repo.name)
+                                .font(.system(size: 12, weight: .semibold))
+                            if let tag = repo.latestReleaseTag, !tag.isEmpty {
+                                Text(tag)
+                                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(AppTheme.statusSync)
+                            }
+                        }
+                        Text(repo.fullName)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .width(min: 190, ideal: 230)
+
+            TableColumn("来源账号") { repo in
+                Text(repo.starredByAccounts.map { "@\($0)" }.joined(separator: ", "))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .width(min: 100, ideal: 130)
+
+            TableColumn("语言 / Star") { repo in
+                HStack(spacing: 6) {
+                    if let lang = repo.language, !lang.isEmpty {
+                        Text(lang)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    HStack(spacing: 2) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(AppTheme.statusDirty)
+                        Text(repo.formattedStars)
+                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    }
+                }
+            }
+            .width(min: 100, ideal: 125)
+
+            TableColumn("本机状态") { repo in
+                if let local = store.localRepository(matching: repo) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(AppTheme.statusClean)
+                            .frame(width: 6, height: 6)
+                        Text("已克隆")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(local.displayPath)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(repo.isRecentlyUpdated ? AppTheme.statusSync : AppTheme.statusNeutral)
+                            .frame(width: 6, height: 6)
+                        Text(repo.isRecentlyUpdated ? "近期更新" : "未克隆")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .width(min: 110, ideal: 150)
+
+            TableColumn("项目简介") { repo in
+                Text(repo.description ?? "—")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .width(min: 160, ideal: 240)
+
+            TableColumn("操作") { repo in
+                HStack(spacing: 8) {
+                    if let local = store.localRepository(matching: repo) {
+                        Button {
+                            ExternalLauncher.openInFinder(path: local.path)
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("在 Finder 中打开本地目录")
+                    } else {
+                        Button {
+                            store.cloneStarredRepository(repo)
+                        } label: {
+                            Image(systemName: "arrow.down.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(store.cloningStarredIDs.contains(repo.id))
+                        .help("一键 Clone 到本地")
+                    }
+
+                    Button {
+                        ExternalLauncher.openInBrowser(urlString: repo.htmlURL)
+                    } label: {
+                        Image(systemName: "safari")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("打开 GitHub 主页")
+                }
+            }
+            .width(min: 65, ideal: 80)
+        }
+    }
+
+    // MARK: - 远程 Star 空状态引导视图
+    private var starredEmptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "star.circle")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+
+            if store.githubStarAccounts.isEmpty {
+                Text("尚未添加 GitHub 账号")
+                    .font(.headline)
+                Text("支持同时添加多个 GitHub 账号，统一追踪 Star 收藏、最新 Release 动态，并支持一键 Clone 到本地。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+
+                HStack(spacing: 10) {
+                    Button {
+                        store.showAddGitHubAccountSheet = true
+                    } label: {
+                        Label("添加 GitHub 账号...", systemImage: "person.badge.plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+
+                    Button {
+                        store.openSettings(tab: .githubStars)
+                    } label: {
+                        Text("设置默认 Clone 目录")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.top, 4)
+            } else if store.isSyncingStars || !store.syncingAccountIDs.isEmpty {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("正在从 GitHub 同步 Star 仓库列表...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("当前筛选条件下没有匹配的 Star 仓库")
+                    .font(.subheadline.bold())
+                HStack(spacing: 10) {
+                    Button("同步最新 Star") {
+                        Task { await store.syncAllGitHubStars() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+                    .controlSize(.small)
+
+                    Button("查看全部远程 Star") {
+                        store.selectedFilter = .starredAll
+                        store.searchText = ""
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
+    }
+
     // MARK: - 空状态引导视图
     private var emptyStateView: some View {
         VStack(spacing: 12) {
@@ -470,12 +822,18 @@ struct MainWindowView: View {
             .help("添加扫描目录或仓库 (⌘O)")
 
             Button {
-                Task { await store.scanAndRefreshAll() }
+                Task {
+                    if store.selectedFilter.isStarredSection {
+                        await store.syncAllGitHubStars()
+                    } else {
+                        await store.scanAndRefreshAll()
+                    }
+                }
             } label: {
                 Label("刷新", systemImage: "arrow.clockwise")
             }
-            .help("重新扫描并刷新全部状态 (⌘R)")
-            .disabled(store.isScanning)
+            .help("重新扫描本地仓库或同步远程 Star (⌘R)")
+            .disabled(store.isScanning || store.isSyncingStars)
 
             Picker("视图", selection: $store.viewMode) {
                 ForEach(DashboardViewMode.allCases, id: \.self) { mode in

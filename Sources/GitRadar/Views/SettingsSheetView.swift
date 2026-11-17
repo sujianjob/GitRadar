@@ -9,6 +9,14 @@ struct SettingsSheetView: View {
     @State private var newGroupIcon: String = "folder"
     @State private var newGroupColor: String = "blue"
 
+    @State private var newStarUsername: String = ""
+    @State private var newStarNote: String = ""
+    @State private var newStarToken: String = ""
+    @State private var editingAccountOriginalUsername: String? = nil
+    @State private var isTestingStarToken: Bool = false
+    @State private var starTokenTestMessage: String? = nil
+    @State private var starTokenTestSuccess: Bool = false
+
     private let availableIcons = [
         "folder", "sparkles", "briefcase", "wrench.and.screwdriver",
         "globe", "cpu", "terminal", "cube.box", "bolt", "star"
@@ -98,6 +106,8 @@ struct SettingsSheetView: View {
                 switch store.selectedSettingsTab {
                 case .directories:
                     directoriesTab
+                case .githubStars:
+                    githubStarsTab
                 case .filter:
                     FilterRulesContentView(store: store)
                 case .groups:
@@ -113,7 +123,7 @@ struct SettingsSheetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.canvasBackground)
         }
-        .frame(width: 820, height: 550)
+        .frame(width: 860, height: 560)
     }
 
     // MARK: - Tab 1: 扫描目录管理
@@ -294,6 +304,451 @@ struct SettingsSheetView: View {
                                 .padding(.vertical, 9)
 
                                 if idx < store.watchedDirectories.count - 1 {
+                                    Divider()
+                                        .padding(.horizontal, 16)
+                                        .opacity(0.5)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(AppTheme.cardBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppTheme.hairlineBorder, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(18)
+    }
+
+    // MARK: - Tab 1.5: 远程 Star 账号管理与默认 Clone 目录设置
+    private var githubStarsTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // 1. 默认 Clone 目录设置卡片（设置后不弹窗，未设置则每次弹窗选择目录）
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("远程 Star 默认 Clone 保存目录")
+                                .font(.system(size: 12.5, weight: .semibold))
+                            if store.defaultCloneDirectory != nil {
+                                Text("已设置默认目录（直接 Clone 不弹窗）")
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .foregroundStyle(AppTheme.statusClean)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1.5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(AppTheme.statusClean.opacity(0.12))
+                                    )
+                            } else {
+                                Text("未设置（每次 Clone 时弹窗选择目录）")
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1.5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(AppTheme.subtleSurface)
+                                    )
+                            }
+                        }
+
+                        if let dir = store.defaultCloneDirectory, !dir.isEmpty {
+                            Text("当前默认路径：\(dir)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            Text("说明：若设置了默认目录，点击远程 Star 仓库的「一键 Clone」将直接克隆至该目录下；若留空则每次弹窗选目录。")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Spacer()
+
+                    if let dir = store.defaultCloneDirectory, !dir.isEmpty {
+                        Button("Finder") {
+                            ExternalLauncher.openInFinder(path: dir)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
+                        Button("清除（恢复每次弹窗）") {
+                            store.setDefaultCloneDirectory(nil)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    Button("选择默认目录...") {
+                        store.promptSelectDefaultCloneDirectory()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+                    .controlSize(.small)
+                }
+
+                if !store.watchedDirectories.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("快捷设为已监控根目录：")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(store.watchedDirectories) { dir in
+                            let isCurrent = store.defaultCloneDirectory == dir.path
+                            Button(isCurrent ? "✓ \(dir.displayName)" : dir.displayName) {
+                                store.setDefaultCloneDirectory(dir.path)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .disabled(isCurrent)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(AppTheme.cardBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppTheme.hairlineBorder, lineWidth: 1)
+            )
+
+            // 2. 添加或编辑 GitHub 账号工具条（含 Token 测试与获取 Token 超链接）
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    if let editingUser = editingAccountOriginalUsername {
+                        HStack(spacing: 6) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(AppTheme.accent)
+                            Text("正在编辑账号 @\(editingUser)（可直接修改用户名、备注或 Token）")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(AppTheme.accent)
+                        }
+                    } else {
+                        HStack(spacing: 5) {
+                            Image(systemName: "person.badge.key.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text("添加或更新 GitHub 账号（公开 Star 免填 Token；填入 Token 可突破 60 次/小时 API 限流）")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button {
+                        ExternalLauncher.openInBrowser(urlString: GitHubStarService.tokenCreationURL)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("获取 GitHub Token")
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(AppTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("在浏览器打开 GitHub Personal Access Token 创建页面")
+
+                    if editingAccountOriginalUsername != nil {
+                        Divider().frame(height: 12)
+                        Button("取消编辑") {
+                            editingAccountOriginalUsername = nil
+                            newStarUsername = ""
+                            newStarNote = ""
+                            newStarToken = ""
+                            starTokenTestMessage = nil
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("GitHub 用户名（如 sujianjob）", text: $newStarUsername)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                        .frame(width: 170)
+
+                    TextField("备注（可选，如 个人主号）", text: $newStarNote)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                        .frame(width: 145)
+
+                    SecureField("Token（ghp_... 或 github_pat_...）", text: $newStarToken)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                        .frame(maxWidth: .infinity)
+                        .onChange(of: newStarToken) { _, _ in
+                            starTokenTestMessage = nil
+                        }
+
+                    Button {
+                        let tokenToTest = newStarToken
+                        isTestingStarToken = true
+                        starTokenTestMessage = nil
+                        Task {
+                            let res = await GitHubStarService.verifyToken(tokenToTest)
+                            isTestingStarToken = false
+                            starTokenTestSuccess = res.isValid
+                            starTokenTestMessage = res.message
+                            if res.isValid,
+                               newStarUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                               let login = res.authenticatedLogin {
+                                newStarUsername = login
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if isTestingStarToken {
+                                ProgressView().controlSize(.mini)
+                            }
+                            Text(isTestingStarToken ? "测试中..." : "测试 Token")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(newStarToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isTestingStarToken)
+                    .help("验证输入的 GitHub Token 是否有效并查看剩余额度")
+
+                    if editingAccountOriginalUsername != nil {
+                        Button("取消") {
+                            editingAccountOriginalUsername = nil
+                            newStarUsername = ""
+                            newStarNote = ""
+                            newStarToken = ""
+                            starTokenTestMessage = nil
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .fixedSize()
+                    }
+
+                    Button(editingAccountOriginalUsername != nil ? "保存修改并同步" : "+ 添加账号") {
+                        store.addOrUpdateGitHubAccount(
+                            originalUsername: editingAccountOriginalUsername,
+                            username: newStarUsername,
+                            token: newStarToken,
+                            note: newStarNote
+                        )
+                        editingAccountOriginalUsername = nil
+                        newStarUsername = ""
+                        newStarNote = ""
+                        newStarToken = ""
+                        starTokenTestMessage = nil
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(newStarUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if !store.githubStarAccounts.isEmpty && editingAccountOriginalUsername == nil {
+                        Button(store.isSyncingStars ? "同步中..." : "同步全部") {
+                            Task { await store.syncAllGitHubStars() }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .fixedSize()
+                        .disabled(store.isSyncingStars)
+                    }
+                }
+
+                if let testMsg = starTokenTestMessage {
+                    HStack(spacing: 5) {
+                        Image(systemName: starTokenTestSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 11))
+                        Text(testMsg)
+                            .font(.system(size: 11, weight: .medium))
+                        Spacer()
+                        Button {
+                            starTokenTestMessage = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .foregroundStyle(starTokenTestSuccess ? AppTheme.statusClean : AppTheme.statusDanger)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(AppTheme.cardBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(editingAccountOriginalUsername != nil ? AppTheme.selectedBorder : AppTheme.hairlineBorder, lineWidth: editingAccountOriginalUsername != nil ? 1.2 : 1)
+            )
+
+            // 3. 多账号列表表格
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("GitHub 账号")
+                        .frame(width: 150, alignment: .leading)
+                    Text("备注与认证方式")
+                        .frame(width: 170, alignment: .leading)
+                    Text("Star 仓库数")
+                        .frame(width: 85, alignment: .trailing)
+                    Text("最近同步状态")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("操作")
+                        .frame(width: 215, alignment: .trailing)
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(AppTheme.subtleSurface)
+
+                Divider()
+
+                if store.githubStarAccounts.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.tertiary)
+                        Text("尚未添加任何 GitHub 账号，请在上方输入 GitHub 用户名后点击「+ 添加账号」")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(store.githubStarAccounts.enumerated()), id: \.element.id) { idx, acc in
+                                let isSyncingThis = store.syncingAccountIDs.contains(acc.id)
+                                let isEditingThis = editingAccountOriginalUsername?.caseInsensitiveCompare(acc.username) == .orderedSame
+                                HStack(spacing: 12) {
+                                    HStack(spacing: 7) {
+                                        Image(systemName: "person.crop.circle.fill")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(AppTheme.accent)
+                                        Text("@\(acc.username)")
+                                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                                            .lineLimit(1)
+                                    }
+                                    .frame(width: 150, alignment: .leading)
+
+                                    HStack(spacing: 6) {
+                                        Text(acc.token.isEmpty ? "公开免密" : "已配 Token")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(acc.token.isEmpty ? .secondary : AppTheme.statusClean)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(AppTheme.subtleSurface)
+                                            )
+                                        if !acc.note.isEmpty {
+                                            Text(acc.note)
+                                                .font(.system(size: 11.5))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    .frame(width: 170, alignment: .leading)
+
+                                    Text("\(store.countForStarredAccount(acc.username)) 个")
+                                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                                        .frame(width: 85, alignment: .trailing)
+
+                                    Group {
+                                        if isSyncingThis {
+                                            HStack(spacing: 6) {
+                                                ProgressView().controlSize(.mini)
+                                                Text("正在拉取 Star...")
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        } else if let err = acc.lastSyncError, !err.isEmpty {
+                                            HStack(spacing: 5) {
+                                                Circle().fill(AppTheme.statusDanger).frame(width: 6, height: 6)
+                                                Text(err)
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(AppTheme.statusDanger)
+                                                    .lineLimit(1)
+                                            }
+                                        } else if let syncedAt = acc.lastSyncedAt {
+                                            HStack(spacing: 5) {
+                                                Circle().fill(AppTheme.statusClean).frame(width: 6, height: 6)
+                                                Text("同步于 \(StarredRepository.formatRelativeDate(syncedAt))")
+                                                    .font(.system(size: 11, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        } else {
+                                            Text("尚未同步")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    HStack(spacing: 6) {
+                                        Button("编辑") {
+                                            editingAccountOriginalUsername = acc.username
+                                            newStarUsername = acc.username
+                                            newStarNote = acc.note
+                                            newStarToken = acc.token
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+
+                                        Button("同步") {
+                                            Task { await store.syncGitHubStars(for: acc) }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(isSyncingThis)
+
+                                        Button("主页") {
+                                            ExternalLauncher.openInBrowser(urlString: "https://github.com/\(acc.username)?tab=stars")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+
+                                        Button("移除") {
+                                            if isEditingThis {
+                                                editingAccountOriginalUsername = nil
+                                                newStarUsername = ""
+                                                newStarNote = ""
+                                                newStarToken = ""
+                                            }
+                                            store.removeGitHubAccount(acc)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                    .frame(width: 215, alignment: .trailing)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(isEditingThis ? AppTheme.selectedBorder.opacity(0.08) : Color.clear)
+
+                                if idx < store.githubStarAccounts.count - 1 {
                                     Divider()
                                         .padding(.horizontal, 16)
                                         .opacity(0.5)

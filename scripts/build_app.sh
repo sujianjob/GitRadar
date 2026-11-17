@@ -17,12 +17,26 @@ if [ ! -f "Resources/AppIcon.icns" ]; then
 fi
 
 echo "🔨 [1/4] 正在编译 Release 版本..."
-if swift build -c release --arch arm64 --arch x86_64 2>/dev/null; then
-    BIN_PATH=".build/apple/Products/Release/${APP_NAME}"
+BUILD_FLAGS=()
+if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ] && [ ! -f "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" ]; then
+    export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+    BUILD_FLAGS+=(--build-system native)
+fi
+
+if swift build -c release "${BUILD_FLAGS[@]}" --arch arm64 --arch x86_64 2>/dev/null; then
+    if [ -f ".build/out/Products/Release/${APP_NAME}" ]; then
+        BIN_PATH=".build/out/Products/Release/${APP_NAME}"
+    else
+        BIN_PATH=".build/apple/Products/Release/${APP_NAME}"
+    fi
     echo "   ✅ 已生成通用二进制 (Universal Binary: arm64 + x86_64)"
 else
-    swift build -c release
-    BIN_PATH=".build/release/${APP_NAME}"
+    swift build -c release "${BUILD_FLAGS[@]}"
+    if [ -f ".build/out/Products/Release/${APP_NAME}" ]; then
+        BIN_PATH=".build/out/Products/Release/${APP_NAME}"
+    else
+        BIN_PATH=".build/release/${APP_NAME}"
+    fi
     echo "   ✅ 已生成当前架构 Release 二进制"
 fi
 

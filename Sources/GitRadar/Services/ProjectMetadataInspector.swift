@@ -271,7 +271,7 @@ enum ProjectMetadataInspector {
     }
 
     /// 清洗 README 中的徽章盾牌、HTML 标签和 Frontmatter，保留干净易读的介绍文本
-    private static func cleanMarkdownForPreview(_ raw: String) -> String {
+    static func cleanMarkdownForPreview(_ raw: String) -> String {
         var text = raw
 
         // 1. 移除开头的 YAML Frontmatter (--- ... ---)
@@ -351,7 +351,7 @@ enum ProjectMetadataInspector {
     }
 
     /// 截取 README 前面的核心项目简介（适配右侧栏 2/5 高度展示区域）
-    private static func buildBriefIntro(from cleaned: String) -> String {
+    static func buildBriefIntro(from cleaned: String) -> String {
         guard !cleaned.isEmpty else { return "" }
         let lines = cleaned.components(separatedBy: .newlines)
         var picked: [String] = []

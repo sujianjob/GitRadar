@@ -397,7 +397,13 @@ enum GitService {
         return (local, remote)
     }
 
-    // MARK: - 6. 交互式 Git 操作（Fetch / Pull / Push / 切换分支 / Diff / 快速提交）
+    // MARK: - 6. 交互式 Git 操作（Fetch / Pull / Push / Clone / 切换分支 / Diff / 快速提交）
+    static func clone(url: String, to destinationPath: String) async -> CommandResult {
+        let parentDir = URL(fileURLWithPath: destinationPath).deletingLastPathComponent().path
+        try? FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+        return await runGit(["clone", "--", url, destinationPath], in: parentDir)
+    }
+
     static func fetch(at path: String, allRemotes: Bool = true) async -> CommandResult {
         let args = allRemotes ? ["fetch", "--all", "--prune"] : ["fetch", "--prune"]
         return await runGit(args, in: path)

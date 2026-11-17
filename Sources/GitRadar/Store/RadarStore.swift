@@ -22,10 +22,14 @@ struct PersistedRadarConfig: Codable {
     var pullUseRebase: Bool?
     var fetchUsePrune: Bool?
     var autoScanOnLaunch: Bool?
+    var githubStarAccounts: [GitHubStarAccount]?
+    var defaultCloneDirectory: String?
+    var starredSortOption: StarredRepoSortOption?
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case directories = "扫描目录"
+    case githubStars = "远程 Star"
     case filter = "过滤管理"
     case groups = "分组管理"
     case gitAndCache = "Git 与缓存"
@@ -37,6 +41,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var sfSymbol: String {
         switch self {
         case .directories: return "folder"
+        case .githubStars: return "star.circle"
         case .filter: return "line.3.horizontal.decrease.circle"
         case .groups: return "tag"
         case .gitAndCache: return "slider.horizontal.3"
@@ -55,6 +60,19 @@ final class RadarStore: ObservableObject {
     @Published var groups: [RepoGroup] = []
     @Published var repoMetaMap: [String: RepoUserMeta] = [:]
     @Published var filterRules: [RepoFilterRule] = []
+
+    // 远程 GitHub Star 数据状态（支持多账号与默认 Clone 目录设置）
+    @Published var githubStarAccounts: [GitHubStarAccount] = []
+    @Published var starredRepositories: [StarredRepository] = []
+    @Published var defaultCloneDirectory: String? = nil
+    @Published var starredSortOption: StarredRepoSortOption = .starredDateDesc
+    @Published var selectedStarredRepoID: String? = nil
+    @Published var isSyncingStars: Bool = false
+    @Published var syncingAccountIDs: Set<String> = []
+    @Published var cloningStarredIDs: Set<String> = []
+    @Published var hydratingStarredIDs: Set<String> = []
+    @Published var showAddGitHubAccountSheet: Bool = false
+    @Published var editingGitHubAccount: GitHubStarAccount? = nil
 
     // 导航与筛选状态
     @Published var selectedFilter: SidebarFilter = .all
@@ -89,17 +107,20 @@ final class RadarStore: ObservableObject {
     @Published var pendingConfirmation: PendingGitConfirmation? = nil
 
     let configFileURL: URL
+    let starredCacheFileURL: URL
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("GitRadar", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.configFileURL = dir.appendingPathComponent("config.json")
+        self.starredCacheFileURL = dir.appendingPathComponent("starred_cache.json")
 
         self.installedEditors = ExternalLauncher.installedEditors()
         self.installedTerminals = ExternalLauncher.installedTerminals()
 
         loadConfig()
+        loadStarredCache()
 
         if preferredEditorPath == nil {
             preferredEditorPath = installedEditors.first?.bundlePath
@@ -110,6 +131,11 @@ final class RadarStore: ObservableObject {
 
         Task {
             await scanAndRefreshAll()
+            if !githubStarAccounts.isEmpty && starredRepositories.isEmpty {
+                await syncAllGitHubStars()
+            } else {
+                await hydrateStarredAvatarsIfNeeded()
+            }
         }
     }
 
@@ -130,6 +156,9 @@ final class RadarStore: ObservableObject {
             self.pullUseRebase = decoded.pullUseRebase ?? false
             self.fetchUsePrune = decoded.fetchUsePrune ?? true
             self.autoScanOnLaunch = decoded.autoScanOnLaunch ?? true
+            self.githubStarAccounts = decoded.githubStarAccounts ?? []
+            self.defaultCloneDirectory = decoded.defaultCloneDirectory
+            self.starredSortOption = decoded.starredSortOption ?? .starredDateDesc
             return
         }
 
@@ -163,10 +192,29 @@ final class RadarStore: ObservableObject {
             filterRules: filterRules,
             pullUseRebase: pullUseRebase,
             fetchUsePrune: fetchUsePrune,
-            autoScanOnLaunch: autoScanOnLaunch
+            autoScanOnLaunch: autoScanOnLaunch,
+            githubStarAccounts: githubStarAccounts,
+            defaultCloneDirectory: defaultCloneDirectory,
+            starredSortOption: starredSortOption
         )
         if let data = try? JSONEncoder().encode(cfg) {
             try? data.write(to: configFileURL, options: .atomic)
+        }
+    }
+
+    private func loadStarredCache() {
+        if let data = try? Data(contentsOf: starredCacheFileURL),
+           let decoded = try? JSONDecoder().decode([StarredRepository].self, from: data) {
+            self.starredRepositories = decoded
+            if selectedStarredRepoID == nil {
+                selectedStarredRepoID = decoded.first?.id
+            }
+        }
+    }
+
+    func saveStarredCache() {
+        if let data = try? JSONEncoder().encode(starredRepositories) {
+            try? data.write(to: starredCacheFileURL, options: .atomic)
         }
     }
 
@@ -391,6 +439,91 @@ final class RadarStore: ObservableObject {
         return visibleRepositories.first(where: { $0.id == id })
     }
 
+    var selectedStarredRepository: StarredRepository? {
+        guard let id = selectedStarredRepoID else { return nil }
+        return starredRepositories.first(where: { $0.id == id })
+    }
+
+    /// 查找某个远程 Star 仓库在本机是否已被克隆（匹配 github.com 的 owner/repo）
+    func localRepository(matching starred: StarredRepository) -> GitRepository? {
+        let targetSlug = starred.fullName.lowercased()
+        return repositories.first { repo in
+            if let slug = repo.primaryRemoteSlug?.lowercased(), slug == targetSlug {
+                return true
+            }
+            return repo.remotes.contains { $0.ownerAndRepo.lowercased() == targetSlug }
+        }
+    }
+
+    var starredAllCount: Int { starredRepositories.count }
+    var starredRecentUpdatedCount: Int { starredRepositories.filter(\.isRecentlyUpdated).count }
+    var starredClonedCount: Int { starredRepositories.filter { localRepository(matching: $0) != nil }.count }
+
+    func countForStarredAccount(_ username: String) -> Int {
+        let lower = username.lowercased()
+        return starredRepositories.filter { repo in
+            repo.starredByAccounts.contains { $0.lowercased() == lower }
+        }.count
+    }
+
+    var filteredStarredRepositories: [StarredRepository] {
+        var list = starredRepositories
+
+        switch selectedFilter {
+        case .starredAll:
+            break
+        case .starredRecentUpdated:
+            list = list.filter(\.isRecentlyUpdated)
+        case .starredCloned:
+            list = list.filter { localRepository(matching: $0) != nil }
+        case .starredAccount(let username):
+            let lower = username.lowercased()
+            list = list.filter { repo in
+                repo.starredByAccounts.contains { $0.lowercased() == lower }
+            }
+        default:
+            break
+        }
+
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            list = list.filter { repo in
+                repo.fullName.lowercased().contains(query) ||
+                repo.name.lowercased().contains(query) ||
+                repo.owner.lowercased().contains(query) ||
+                (repo.description?.lowercased().contains(query) ?? false) ||
+                (repo.language?.lowercased().contains(query) ?? false) ||
+                repo.topics.contains(where: { $0.lowercased().contains(query) }) ||
+                (repo.latestReleaseTag?.lowercased().contains(query) ?? false) ||
+                repo.starredByAccounts.contains(where: { $0.lowercased().contains(query) })
+            }
+        }
+
+        list.sort { a, b in
+            switch starredSortOption {
+            case .starredDateDesc:
+                let da = a.starredAt ?? a.pushedAt ?? .distantPast
+                let db = b.starredAt ?? b.pushedAt ?? .distantPast
+                if da != db { return da > db }
+                return a.stargazersCount > b.stargazersCount
+            case .recentlyUpdated:
+                let da = a.pushedAt ?? .distantPast
+                let db = b.pushedAt ?? .distantPast
+                if da != db { return da > db }
+                return a.stargazersCount > b.stargazersCount
+            case .starsDesc:
+                if a.stargazersCount != b.stargazersCount {
+                    return a.stargazersCount > b.stargazersCount
+                }
+                return a.fullName.localizedCaseInsensitiveCompare(b.fullName) == .orderedAscending
+            case .nameAsc:
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        }
+
+        return list
+    }
+
     var filteredRepositories: [GitRepository] {
         var list = visibleRepositories
 
@@ -405,6 +538,8 @@ final class RadarStore: ObservableObject {
             list = list.filter { $0.behindCount > 0 }
         case .favorites:
             list = list.filter { $0.isFavorite }
+        case .starredAll, .starredRecentUpdated, .starredCloned, .starredAccount:
+            break
         case .provider(let provider):
             list = list.filter { $0.primaryProvider == provider }
         case .domain(let host):
@@ -989,6 +1124,429 @@ final class RadarStore: ObservableObject {
             busyRepoIDs.remove(repo.id)
         }
         showBanner("批量拉取完成：成功 \(successCount)/\(targets.count) 个仓库")
+    }
+
+    // MARK: - 远程 GitHub Star 账号管理、同步与一键 Clone
+    func beginAddGitHubAccount() {
+        editingGitHubAccount = nil
+        showAddGitHubAccountSheet = true
+    }
+
+    func beginEditingGitHubAccount(_ account: GitHubStarAccount) {
+        editingGitHubAccount = account
+        showAddGitHubAccountSheet = true
+    }
+
+    func addOrUpdateGitHubAccount(
+        originalUsername: String? = nil,
+        username: String,
+        token: String = "",
+        note: String = ""
+    ) {
+        let cleanedUser = username
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "@", with: "")
+        guard !cleanedUser.isEmpty else {
+            showBanner("请输入有效的 GitHub 用户名", isError: true)
+            return
+        }
+
+        let cleanedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedOriginal = originalUsername?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "@", with: "")
+
+        // 如果是从已有账号编辑且修改了用户名，先清理旧用户名关联的数据并在原位置更新
+        if let oldUser = cleanedOriginal,
+           !oldUser.isEmpty,
+           oldUser.caseInsensitiveCompare(cleanedUser) != .orderedSame {
+            let oldLower = oldUser.lowercased()
+            var updatedList: [StarredRepository] = []
+            for var repo in starredRepositories {
+                repo.starredByAccounts.removeAll { $0.lowercased() == oldLower }
+                if !repo.starredByAccounts.isEmpty {
+                    updatedList.append(repo)
+                }
+            }
+            starredRepositories = updatedList
+            saveStarredCache()
+
+            // 如果新用户名与列表中另一个账号重名，先移除旧项再合并到目标项
+            if let existingTargetIdx = githubStarAccounts.firstIndex(where: { $0.username.caseInsensitiveCompare(cleanedUser) == .orderedSame }) {
+                githubStarAccounts.removeAll { $0.username.caseInsensitiveCompare(oldUser) == .orderedSame && $0.username.caseInsensitiveCompare(cleanedUser) != .orderedSame }
+                if let mergedIdx = githubStarAccounts.firstIndex(where: { $0.username.caseInsensitiveCompare(cleanedUser) == .orderedSame }) {
+                    githubStarAccounts[mergedIdx].username = cleanedUser
+                    githubStarAccounts[mergedIdx].token = cleanedToken
+                    githubStarAccounts[mergedIdx].note = cleanedNote
+                    let account = githubStarAccounts[mergedIdx]
+                    if case .starredAccount(let selectedUser) = selectedFilter,
+                       selectedUser.caseInsensitiveCompare(oldUser) == .orderedSame {
+                        selectedFilter = .starredAccount(cleanedUser)
+                    }
+                    saveConfig()
+                    Task { await syncGitHubStars(for: account) }
+                    return
+                }
+                _ = existingTargetIdx
+            } else if let oldIdx = githubStarAccounts.firstIndex(where: { $0.username.caseInsensitiveCompare(oldUser) == .orderedSame }) {
+                githubStarAccounts[oldIdx] = GitHubStarAccount(
+                    username: cleanedUser,
+                    token: cleanedToken,
+                    note: cleanedNote,
+                    lastSyncedAt: nil,
+                    lastSyncError: nil
+                )
+                let account = githubStarAccounts[oldIdx]
+                if case .starredAccount(let selectedUser) = selectedFilter,
+                   selectedUser.caseInsensitiveCompare(oldUser) == .orderedSame {
+                    selectedFilter = .starredAccount(cleanedUser)
+                }
+                saveConfig()
+                Task { await syncGitHubStars(for: account) }
+                return
+            }
+        }
+
+        let account: GitHubStarAccount
+        if let idx = githubStarAccounts.firstIndex(where: { $0.username.caseInsensitiveCompare(cleanedUser) == .orderedSame }) {
+            githubStarAccounts[idx].username = cleanedUser
+            githubStarAccounts[idx].token = cleanedToken
+            githubStarAccounts[idx].note = cleanedNote
+            account = githubStarAccounts[idx]
+        } else {
+            let newAcc = GitHubStarAccount(username: cleanedUser, token: cleanedToken, note: cleanedNote)
+            githubStarAccounts.append(newAcc)
+            account = newAcc
+        }
+
+        saveConfig()
+        Task {
+            await syncGitHubStars(for: account)
+        }
+    }
+
+    func removeGitHubAccount(_ account: GitHubStarAccount) {
+        let lowerUser = account.username.lowercased()
+        githubStarAccounts.removeAll { $0.id == account.id }
+
+        // 移除仅由该账号关联的 Star，保留同时被其他已配置账号 Star 的仓库
+        var updatedList: [StarredRepository] = []
+        for var repo in starredRepositories {
+            repo.starredByAccounts.removeAll { $0.lowercased() == lowerUser }
+            if !repo.starredByAccounts.isEmpty {
+                updatedList.append(repo)
+            }
+        }
+        starredRepositories = updatedList
+
+        if case .starredAccount(let selectedUser) = selectedFilter,
+           selectedUser.lowercased() == lowerUser {
+            selectedFilter = .starredAll
+        }
+        if selectedStarredRepoID == nil || !starredRepositories.contains(where: { $0.id == selectedStarredRepoID }) {
+            selectedStarredRepoID = filteredStarredRepositories.first?.id
+        }
+
+        saveConfig()
+        saveStarredCache()
+        showBanner("已移除 GitHub 账号 @\(account.username)")
+    }
+
+    func syncAllGitHubStars() async {
+        guard !githubStarAccounts.isEmpty else {
+            showAddGitHubAccountSheet = true
+            return
+        }
+        guard !isSyncingStars else { return }
+        isSyncingStars = true
+        defer { isSyncingStars = false }
+
+        let accountsSnapshot = githubStarAccounts
+        showBanner("正在同步 \(accountsSnapshot.count) 个 GitHub 账号的 Star 列表...")
+
+        for acc in accountsSnapshot {
+            await syncGitHubStars(for: acc, silentBanner: accountsSnapshot.count > 1)
+        }
+
+        showBanner("远程 Star 同步完成，共 \(starredRepositories.count) 个项目")
+    }
+
+    func syncGitHubStars(for account: GitHubStarAccount, silentBanner: Bool = false) async {
+        let accID = account.id
+        guard !syncingAccountIDs.contains(accID) else { return }
+        syncingAccountIDs.insert(accID)
+        defer { syncingAccountIDs.remove(accID) }
+
+        if !silentBanner {
+            showBanner("正在拉取 @\(account.username) 的 GitHub Star...")
+        }
+
+        do {
+            let usernameForBanner = account.username
+            let fetched = try await GitHubStarService.fetchStarredRepositories(account: account) { [weak self] page, totalCount in
+                guard page > 1 else { return }
+                Task { @MainActor in
+                    self?.statusBannerMessage = "正在拉取 @\(usernameForBanner) 的 GitHub Star（第 \(page) 页 · 已获取 \(totalCount) 个）..."
+                }
+            }
+            mergeFetchedStars(fetched, forAccount: account.username)
+
+            if let idx = githubStarAccounts.firstIndex(where: { $0.id == accID }) {
+                githubStarAccounts[idx].lastSyncedAt = Date()
+                githubStarAccounts[idx].lastSyncError = nil
+            }
+            saveConfig()
+            saveStarredCache()
+
+            if selectedStarredRepoID == nil || !starredRepositories.contains(where: { $0.id == selectedStarredRepoID }) {
+                selectedStarredRepoID = filteredStarredRepositories.first?.id
+            }
+
+            if !silentBanner {
+                showBanner("已同步 @\(account.username)：共 \(fetched.count) 个 Star 项目")
+            }
+
+            Task {
+                await hydrateStarredAvatarsIfNeeded()
+                if let current = selectedStarredRepository {
+                    await hydrateStarredRepoDetailsIfNeeded(current)
+                }
+            }
+        } catch {
+            let msg = error.localizedDescription
+            if let idx = githubStarAccounts.firstIndex(where: { $0.id == accID }) {
+                githubStarAccounts[idx].lastSyncError = msg
+            }
+            saveConfig()
+            showBanner("@\(account.username) 同步失败：\(msg)", isError: true)
+        }
+    }
+
+    private func mergeFetchedStars(_ fetched: [StarredRepository], forAccount username: String) {
+        let lowerUser = username.lowercased()
+        var existingMap: [String: StarredRepository] = [:]
+
+        // 先从现有列表中清理该账号旧标记，稍后按最新拉取结果重新合并
+        for var repo in starredRepositories {
+            repo.starredByAccounts.removeAll { $0.lowercased() == lowerUser }
+            existingMap[repo.id] = repo
+        }
+
+        for incoming in fetched {
+            if var old = existingMap[incoming.id] {
+                old.description = incoming.description ?? old.description
+                old.language = incoming.language ?? old.language
+                old.topics = incoming.topics.isEmpty ? old.topics : incoming.topics
+                old.stargazersCount = incoming.stargazersCount
+                old.forksCount = incoming.forksCount
+                old.openIssuesCount = incoming.openIssuesCount
+                old.isArchived = incoming.isArchived
+                old.defaultBranch = incoming.defaultBranch
+                old.avatarURL = incoming.avatarURL ?? old.avatarURL
+                old.cachedAvatarPath = incoming.cachedAvatarPath ?? old.cachedAvatarPath
+                old.pushedAt = incoming.pushedAt ?? old.pushedAt
+                if let incomingStarred = incoming.starredAt {
+                    if let existingStarred = old.starredAt {
+                        old.starredAt = max(existingStarred, incomingStarred)
+                    } else {
+                        old.starredAt = incomingStarred
+                    }
+                }
+                if !old.starredByAccounts.contains(where: { $0.lowercased() == lowerUser }) {
+                    old.starredByAccounts.append(username)
+                }
+                existingMap[incoming.id] = old
+            } else {
+                existingMap[incoming.id] = incoming
+            }
+        }
+
+        // 只保留至少属于一个已配置账号的 Star 仓库
+        self.starredRepositories = existingMap.values
+            .filter { !$0.starredByAccounts.isEmpty }
+            .sorted { ($0.starredAt ?? $0.pushedAt ?? .distantPast) > ($1.starredAt ?? $1.pushedAt ?? .distantPast) }
+    }
+
+    func hydrateStarredAvatarsIfNeeded() async {
+        let candidates = starredRepositories.filter { $0.cachedAvatarPath == nil && $0.avatarURL != nil }
+        guard !candidates.isEmpty else { return }
+
+        var changed = false
+        for repo in candidates.prefix(60) {
+            guard let urlStr = repo.avatarURL else { continue }
+            if let cachedPath = await ProjectMetadataInspector.downloadAndCacheAvatar(
+                from: urlStr,
+                provider: .github,
+                slug: repo.fullName
+            ) {
+                if let idx = starredRepositories.firstIndex(where: { $0.id == repo.id }) {
+                    starredRepositories[idx].cachedAvatarPath = cachedPath
+                    changed = true
+                }
+            }
+        }
+        if changed {
+            saveStarredCache()
+        }
+    }
+
+    func hydrateStarredRepoDetailsIfNeeded(_ repo: StarredRepository, force: Bool = false) async {
+        if !force && repo.readmeFullText != nil && repo.latestReleaseTag != nil {
+            return
+        }
+        guard !hydratingStarredIDs.contains(repo.id) else { return }
+        hydratingStarredIDs.insert(repo.id)
+        defer { hydratingStarredIDs.remove(repo.id) }
+
+        // 优先使用关联账号中配置了 Token 的凭据
+        let token = githubStarAccounts
+            .first(where: { acc in
+                !acc.token.isEmpty && repo.starredByAccounts.contains(where: { $0.caseInsensitiveCompare(acc.username) == .orderedSame })
+            })?.token
+            ?? githubStarAccounts.first(where: { !$0.token.isEmpty })?.token
+
+        let result = await GitHubStarService.fetchReleaseAndReadme(
+            fullName: repo.fullName,
+            defaultBranch: repo.defaultBranch,
+            token: token
+        )
+
+        if let idx = starredRepositories.firstIndex(where: { $0.id == repo.id }) {
+            if let tag = result.latestReleaseTag {
+                starredRepositories[idx].latestReleaseTag = tag
+                starredRepositories[idx].latestReleaseName = result.latestReleaseName
+                starredRepositories[idx].latestReleasePublishedAt = result.latestReleasePublishedAt
+                starredRepositories[idx].latestReleaseBody = result.latestReleaseBody
+                starredRepositories[idx].latestReleaseHTMLURL = result.latestReleaseHTMLURL
+            }
+            if let full = result.readmeFullText {
+                starredRepositories[idx].readmeExcerpt = result.readmeExcerpt
+                starredRepositories[idx].readmeFullText = full
+            }
+            saveStarredCache()
+        }
+    }
+
+    // MARK: - 默认 Clone 目录设置与一键 Clone 逻辑
+    var formattedDefaultCloneDirectory: String? {
+        guard let dir = defaultCloneDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !dir.isEmpty else {
+            return nil
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if dir.hasPrefix(home) {
+            return "~" + dir.dropFirst(home.count)
+        }
+        return dir
+    }
+
+    func setDefaultCloneDirectory(_ rawPath: String?) {
+        if let rawPath, !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let expanded = (rawPath.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).expandingTildeInPath
+            defaultCloneDirectory = expanded
+            showBanner("已设置默认 Clone 目录：\(expanded)")
+        } else {
+            defaultCloneDirectory = nil
+            showBanner("已清除默认 Clone 目录（每次 Clone 时将弹窗选择）")
+        }
+        saveConfig()
+    }
+
+    func promptSelectDefaultCloneDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "设置远程 Star 默认 Clone 目录"
+        panel.message = "设置后，点击远程 Star 仓库的「一键 Clone」将直接克隆到此目录下，不再弹窗询问"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+
+        if panel.runModal() == .OK, let url = panel.url {
+            setDefaultCloneDirectory(url.path)
+        }
+    }
+
+    /// 触发远程 Star 仓库 Clone：若已设置默认目录则直接克隆；否则弹窗选择保存目录
+    func cloneStarredRepository(_ starred: StarredRepository) {
+        if let existingLocal = localRepository(matching: starred) {
+            showBanner("该仓库已存在于本地：\(existingLocal.displayPath)")
+            return
+        }
+        guard !cloningStarredIDs.contains(starred.id) else { return }
+
+        let targetParentDir: String
+        if let configuredDir = defaultCloneDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredDir.isEmpty {
+            targetParentDir = (configuredDir as NSString).expandingTildeInPath
+        } else {
+            // 未设置默认目录：弹窗让用户选择目录
+            let panel = NSOpenPanel()
+            panel.title = "选择 Clone 保存目录"
+            panel.message = "将克隆「\(starred.fullName)」到所选文件夹下的 \(starred.name) 目录（可在设置 → 远程 Star 中配置默认目录免弹窗）"
+            panel.prompt = "克隆到此目录"
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = true
+            if let firstWatched = watchedDirectories.first {
+                panel.directoryURL = URL(fileURLWithPath: firstWatched.path)
+            }
+
+            guard panel.runModal() == .OK, let pickedURL = panel.url else {
+                return
+            }
+            targetParentDir = pickedURL.path
+        }
+
+        let destinationPath = (targetParentDir as NSString).appendingPathComponent(starred.name)
+        if FileManager.default.fileExists(atPath: destinationPath) {
+            if GitService.isGitRepository(at: destinationPath) {
+                manualRepoPaths.insert(destinationPath)
+                saveConfig()
+                showBanner("检测到本地已存在该仓库，正在刷新本地列表...")
+                Task { await scanAndRefreshAll() }
+            } else {
+                showBanner("目标目录已存在同名非 Git 文件夹：\(destinationPath)", isError: true)
+            }
+            return
+        }
+
+        Task {
+            await executeCloneStarredRepository(starred, destinationPath: destinationPath, parentDir: targetParentDir)
+        }
+    }
+
+    private func executeCloneStarredRepository(
+        _ starred: StarredRepository,
+        destinationPath: String,
+        parentDir: String
+    ) async {
+        cloningStarredIDs.insert(starred.id)
+        defer { cloningStarredIDs.remove(starred.id) }
+
+        showBanner("正在克隆 \(starred.fullName) → \(destinationPath)...")
+        let res = await GitService.clone(url: starred.cloneURL, to: destinationPath)
+        recordLog(
+            repoName: starred.name,
+            command: "git clone \(starred.cloneURL) \"\(destinationPath)\"",
+            result: res
+        )
+
+        guard res.isSuccess else {
+            showBanner("克隆 \(starred.name) 失败：\(res.combinedOutput)", isError: true)
+            return
+        }
+
+        // 确保克隆后的仓库能被本地仓库列表立即收录
+        let isCoveredByWatched = watchedDirectories.contains { destinationPath.hasPrefix($0.path) }
+        if !isCoveredByWatched {
+            manualRepoPaths.insert(destinationPath)
+            saveConfig()
+        }
+
+        await scanAndRefreshAll()
+        showBanner("已克隆完成并纳入本地管理：\(starred.name)")
     }
 
     // MARK: - 辅助日志与提示

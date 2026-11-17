@@ -407,11 +407,24 @@ enum SidebarFilter: Hashable {
     case unpushed
     case needsPull
     case favorites
+    case starredAll
+    case starredRecentUpdated
+    case starredCloned
+    case starredAccount(String)
     case provider(GitProvider)
     case domain(String)
     case organization(host: String, org: String)
     case group(UUID)
     case rootDirectory(String)
+
+    var isStarredSection: Bool {
+        switch self {
+        case .starredAll, .starredRecentUpdated, .starredCloned, .starredAccount:
+            return true
+        default:
+            return false
+        }
+    }
 
     var title: String {
         switch self {
@@ -420,6 +433,10 @@ enum SidebarFilter: Hashable {
         case .unpushed: return "待推送提交"
         case .needsPull: return "待拉取更新"
         case .favorites: return "星标收藏"
+        case .starredAll: return "全部远程 Star"
+        case .starredRecentUpdated: return "近期版本更新"
+        case .starredCloned: return "本机已克隆 Star"
+        case .starredAccount(let username): return "@\(username) 的 Star"
         case .provider(let p): return p.rawValue
         case .domain(let host): return "域名：\(host)"
         case .organization(let host, let org): return "\(host)/\(org)"
@@ -427,6 +444,143 @@ enum SidebarFilter: Hashable {
         case .rootDirectory(let path):
             return URL(fileURLWithPath: path).lastPathComponent
         }
+    }
+}
+
+// MARK: - GitHub 账号与远程 Star 仓库模型
+struct GitHubStarAccount: Identifiable, Codable, Hashable, Sendable {
+    var id: String { username.lowercased() }
+    var username: String
+    var token: String = ""
+    var note: String = ""
+    var lastSyncedAt: Date? = nil
+    var lastSyncError: String? = nil
+}
+
+enum StarredRepoSortOption: String, Codable, CaseIterable, Sendable {
+    case starredDateDesc = "按最近 Star 排序"
+    case recentlyUpdated = "按最近更新排序"
+    case starsDesc = "按 Star 热度排序"
+    case nameAsc = "按项目名称 (A-Z)"
+}
+
+struct StarredRepository: Identifiable, Codable, Hashable, Sendable {
+    var id: String { fullName.lowercased() }
+    let repoId: Int
+    let name: String
+    let owner: String
+    let fullName: String
+    let htmlURL: String
+    let cloneURL: String
+    let sshURL: String
+    var description: String?
+    var language: String?
+    var topics: [String]
+    var stargazersCount: Int
+    var forksCount: Int
+    var openIssuesCount: Int
+    var isArchived: Bool
+    var defaultBranch: String
+    var avatarURL: String?
+    var cachedAvatarPath: String?
+    var pushedAt: Date?
+    var starredAt: Date?
+    var starredByAccounts: [String]
+
+    // Release 与 README 附加缓存信息
+    var latestReleaseTag: String?
+    var latestReleaseName: String?
+    var latestReleasePublishedAt: Date?
+    var latestReleaseBody: String?
+    var latestReleaseHTMLURL: String?
+    var readmeExcerpt: String?
+    var readmeFullText: String?
+
+    var techStack: ProjectTechStack {
+        let lang = (language ?? "").lowercased()
+        if lang.contains("swift") { return .swift }
+        if lang.contains("python") || lang.contains("jupyter") { return .python }
+        if lang.contains("typescript") || lang.contains("vue") || lang.contains("svelte") { return .typescript }
+        if lang.contains("javascript") { return .javascript }
+        if lang.contains("rust") { return .rust }
+        if lang.contains("go") { return .golang }
+        if lang.contains("java") || lang.contains("kotlin") || lang.contains("scala") { return .javaKotlin }
+        if lang.contains("markdown") { return .docs }
+        let topicStr = topics.joined(separator: " ").lowercased()
+        if topicStr.contains("ai") || topicStr.contains("llm") || topicStr.contains("agent") || topicStr.contains("mcp") {
+            return .aiSkill
+        }
+        return .generic
+    }
+
+    var monogram: String {
+        let separators = CharacterSet(charactersIn: "-_ .")
+        let parts = name.components(separatedBy: separators).filter { !$0.isEmpty }
+        if parts.count >= 2 {
+            let first = parts[0].prefix(1).uppercased()
+            let second = parts[1].prefix(1).uppercased()
+            return "\(first)\(second)"
+        }
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.count >= 2 {
+            return String(clean.prefix(2)).uppercased()
+        }
+        return clean.uppercased()
+    }
+
+    var formattedStars: String {
+        if stargazersCount >= 1000 {
+            return String(format: "%.1fk", Double(stargazersCount) / 1000.0)
+        }
+        return "\(stargazersCount)"
+    }
+
+    var formattedForks: String {
+        if forksCount >= 1000 {
+            return String(format: "%.1fk", Double(forksCount) / 1000.0)
+        }
+        return "\(forksCount)"
+    }
+
+    var isRecentlyUpdated: Bool {
+        let cutoff = Date().addingTimeInterval(-30 * 86_400)
+        if let relDate = latestReleasePublishedAt, relDate >= cutoff {
+            return true
+        }
+        if let pushed = pushedAt, pushed >= cutoff {
+            return true
+        }
+        return false
+    }
+
+    var isStale: Bool {
+        guard !isArchived, let pushed = pushedAt else { return false }
+        return Date().timeIntervalSince(pushed) > 180 * 86_400
+    }
+
+    var relativePushedTime: String {
+        guard let pushed = pushedAt else { return "未知" }
+        return Self.formatRelativeDate(pushed)
+    }
+
+    var relativeStarredTime: String? {
+        guard let starred = starredAt else { return nil }
+        return Self.formatRelativeDate(starred)
+    }
+
+    static func formatRelativeDate(_ date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        let minutes = seconds / 60
+        if minutes < 1 { return "刚刚" }
+        if minutes < 60 { return "\(minutes) 分钟前" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours) 小时前" }
+        let days = hours / 24
+        if days < 30 { return "\(days) 天前" }
+        let months = days / 30
+        if months < 12 { return "\(months) 个月前" }
+        let years = days / 365
+        return "\(years) 年前"
     }
 }
 
