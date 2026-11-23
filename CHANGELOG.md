@@ -2,6 +2,27 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，并采用 [语义化版本 (Semantic Versioning)](https://semver.org/lang/zh-CN/) 进行版本管理。
 
+## [0.3.0] - 2026-11-23
+
+### Added
+- **GitHub 仓库排行榜（四大核心榜单）**：
+  - 新增 **Trending 趋势热榜**（支持今日 / 本周 / 本月飙升，优先解析官方 Trending 页面并附带 Search API 兜底回退）。
+  - 新增 **新晋黑马榜**（筛选近 7 / 30 / 90 天内新创建且 Star 增长最快的项目，自动计算新建天数与日均 Star 增速）。
+  - 新增 **AI / Agent 专题榜**（聚合 `LLM / Agent / MCP / Skill` 领域的近期新秀、近期活跃与殿堂总榜）。
+  - 新增 **全站 Star 总榜**（支持按全部语言或 Python、TypeScript、Rust、Go、Swift 等 11 种主流语言筛选 Top 殿堂级项目）。
+  - 排行榜卡片与详情面板深度打通本地状态：自动标记「本机已克隆」与「已收藏 (@account)」，支持一键 Clone 或直接在 Finder / VS Code / Antigravity IDE 中打开。
+- **远程 GitHub Star 仓库多账号追踪与管理**：
+  - 支持同时添加、编辑多个 GitHub 账号并配置 Personal Access Token（内置一键在线测试 Token 有效性与配额余量）。
+  - 自动分页拉取账号下全部 Star 仓库，提供「全部远程 Star」、「近期版本更新」、「本机已克隆」与按单账号筛选视图。
+  - 支持设置「默认 Clone 目录」（配置后点击「一键 Clone」直接静默克隆至目标目录并自动纳入本地仓库监控）。
+  - 右侧详情面板支持按需拉取远程项目的中文/英文 `README.md` 全文预览与最新 GitHub Release 版本说明。
+
+### Changed
+- **构建脚本跨架构增强**：
+  - `scripts/build_app.sh` 新增 macOS Universal Binary (`arm64 + x86_64`) 编译支持与 CommandLineTools SDK 兼容处理。
+
+---
+
 ## [0.2.0] - 2026-11-09
 
 ### Added

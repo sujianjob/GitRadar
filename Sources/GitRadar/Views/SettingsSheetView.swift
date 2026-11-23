@@ -1234,7 +1234,7 @@ struct SettingsSheetView: View {
     }
 
     private var appVersionString: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0"
     }
 
     // MARK: - Tab 6: 关于我们与版本信息
