@@ -74,8 +74,23 @@ final class RadarStore: ObservableObject {
     @Published var showAddGitHubAccountSheet: Bool = false
     @Published var editingGitHubAccount: GitHubStarAccount? = nil
 
+    // GitHub 仓库排行榜数据与筛选状态
+    @Published var rankingPeriod: GitHubRankingPeriod = .daily
+    @Published var rankingLanguage: GitHubRankingLanguage = .all
+    @Published var rankingCacheMap: [String: RankingCacheEntry] = [:]
+    @Published var selectedRankedRepoID: String? = nil
+    @Published var isFetchingRanking: Bool = false
+    @Published var rankingErrorMessage: String? = nil
+    @Published var hydratingRankedIDs: Set<String> = []
+
     // 导航与筛选状态
-    @Published var selectedFilter: SidebarFilter = .all
+    @Published var selectedFilter: SidebarFilter = .all {
+        didSet {
+            if case .ranking(let board) = selectedFilter {
+                Task { await ensureRankingLoaded(board: board) }
+            }
+        }
+    }
     @Published var selectedRepoID: String? = nil
     @Published var searchText: String = ""
     @Published var viewMode: DashboardViewMode = .grid
@@ -108,6 +123,7 @@ final class RadarStore: ObservableObject {
 
     let configFileURL: URL
     let starredCacheFileURL: URL
+    let rankingCacheFileURL: URL
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -115,12 +131,14 @@ final class RadarStore: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.configFileURL = dir.appendingPathComponent("config.json")
         self.starredCacheFileURL = dir.appendingPathComponent("starred_cache.json")
+        self.rankingCacheFileURL = dir.appendingPathComponent("ranking_cache.json")
 
         self.installedEditors = ExternalLauncher.installedEditors()
         self.installedTerminals = ExternalLauncher.installedTerminals()
 
         loadConfig()
         loadStarredCache()
+        loadRankingCache()
 
         if preferredEditorPath == nil {
             preferredEditorPath = installedEditors.first?.bundlePath
@@ -215,6 +233,19 @@ final class RadarStore: ObservableObject {
     func saveStarredCache() {
         if let data = try? JSONEncoder().encode(starredRepositories) {
             try? data.write(to: starredCacheFileURL, options: .atomic)
+        }
+    }
+
+    private func loadRankingCache() {
+        if let data = try? Data(contentsOf: rankingCacheFileURL),
+           let decoded = try? JSONDecoder().decode([String: RankingCacheEntry].self, from: data) {
+            self.rankingCacheMap = decoded
+        }
+    }
+
+    func saveRankingCache() {
+        if let data = try? JSONEncoder().encode(rankingCacheMap) {
+            try? data.write(to: rankingCacheFileURL, options: .atomic)
         }
     }
 
@@ -455,6 +486,61 @@ final class RadarStore: ObservableObject {
         }
     }
 
+    /// 查找某个排行榜仓库在本机是否已被克隆
+    func localRepository(matching ranked: RankedRepository) -> GitRepository? {
+        let targetSlug = ranked.fullName.lowercased()
+        return repositories.first { repo in
+            if let slug = repo.primaryRemoteSlug?.lowercased(), slug == targetSlug {
+                return true
+            }
+            return repo.remotes.contains { $0.ownerAndRepo.lowercased() == targetSlug }
+        }
+    }
+
+    /// 查找某个排行榜仓库是否已被当前配置的 GitHub 账号 Star 收藏
+    func starredAccounts(for ranked: RankedRepository) -> [String] {
+        let key = ranked.fullName.lowercased()
+        return starredRepositories.first(where: { $0.id == key })?.starredByAccounts ?? []
+    }
+
+    var currentRankingCacheKey: String? {
+        guard let board = selectedFilter.rankingBoard else { return nil }
+        return GitHubRankingService.cacheKey(board: board, period: rankingPeriod, language: rankingLanguage)
+    }
+
+    var currentRankingEntry: RankingCacheEntry? {
+        guard let key = currentRankingCacheKey else { return nil }
+        return rankingCacheMap[key]
+    }
+
+    func countForRankingBoard(_ board: GitHubRankingBoard) -> Int {
+        let key = GitHubRankingService.cacheKey(board: board, period: rankingPeriod, language: rankingLanguage)
+        return rankingCacheMap[key]?.items.count ?? 0
+    }
+
+    var filteredRankedRepositories: [RankedRepository] {
+        guard let entry = currentRankingEntry else { return [] }
+        var list = entry.items
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            list = list.filter { repo in
+                repo.fullName.lowercased().contains(query) ||
+                repo.name.lowercased().contains(query) ||
+                repo.owner.lowercased().contains(query) ||
+                (repo.description?.lowercased().contains(query) ?? false) ||
+                (repo.language?.lowercased().contains(query) ?? false) ||
+                repo.topics.contains(where: { $0.lowercased().contains(query) }) ||
+                repo.deltaBadgeText.lowercased().contains(query)
+            }
+        }
+        return list
+    }
+
+    var selectedRankedRepository: RankedRepository? {
+        guard let id = selectedRankedRepoID else { return nil }
+        return currentRankingEntry?.items.first(where: { $0.id == id })
+    }
+
     var starredAllCount: Int { starredRepositories.count }
     var starredRecentUpdatedCount: Int { starredRepositories.filter(\.isRecentlyUpdated).count }
     var starredClonedCount: Int { starredRepositories.filter { localRepository(matching: $0) != nil }.count }
@@ -538,7 +624,7 @@ final class RadarStore: ObservableObject {
             list = list.filter { $0.behindCount > 0 }
         case .favorites:
             list = list.filter { $0.isFavorite }
-        case .starredAll, .starredRecentUpdated, .starredCloned, .starredAccount:
+        case .starredAll, .starredRecentUpdated, .starredCloned, .starredAccount, .ranking:
             break
         case .provider(let provider):
             list = list.filter { $0.primaryProvider == provider }
@@ -1547,6 +1633,173 @@ final class RadarStore: ObservableObject {
 
         await scanAndRefreshAll()
         showBanner("已克隆完成并纳入本地管理：\(starred.name)")
+    }
+
+    // MARK: - GitHub 仓库排行榜拉取、缓存与联动
+    func cloneRankedRepository(_ ranked: RankedRepository) {
+        cloneStarredRepository(ranked.asStarredRepository)
+    }
+
+    func ensureRankingLoaded(board: GitHubRankingBoard, force: Bool = false) async {
+        let key = GitHubRankingService.cacheKey(board: board, period: rankingPeriod, language: rankingLanguage)
+        if !force, let cached = rankingCacheMap[key], !cached.items.isEmpty {
+            // 45 分钟内的本地缓存直接复用，不重复消耗 API 配额
+            let age = Date().timeIntervalSince(cached.fetchedAt)
+            if selectedRankedRepoID == nil || !cached.items.contains(where: { $0.id == selectedRankedRepoID }) {
+                selectedRankedRepoID = cached.items.first?.id
+            }
+            if age < 45 * 60 {
+                Task { await hydrateRankedAvatarsIfNeeded(forKey: key) }
+                return
+            }
+        }
+        await fetchRanking(board: board, period: rankingPeriod, language: rankingLanguage, showFeedback: force)
+    }
+
+    func refreshCurrentRanking() async {
+        guard let board = selectedFilter.rankingBoard else { return }
+        await fetchRanking(board: board, period: rankingPeriod, language: rankingLanguage, showFeedback: true)
+    }
+
+    func fetchRanking(
+        board: GitHubRankingBoard,
+        period: GitHubRankingPeriod,
+        language: GitHubRankingLanguage,
+        showFeedback: Bool = false
+    ) async {
+        guard !isFetchingRanking else { return }
+        isFetchingRanking = true
+        rankingErrorMessage = nil
+        defer { isFetchingRanking = false }
+
+        let key = GitHubRankingService.cacheKey(board: board, period: period, language: language)
+        let token = githubStarAccounts.first(where: { !$0.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.token
+
+        if showFeedback {
+            showBanner("正在刷新「\(board.title)」(\(language.displayName))...")
+        }
+
+        do {
+            let result = try await GitHubRankingService.fetchRanking(
+                board: board,
+                period: period,
+                language: language,
+                token: token
+            )
+
+            // 保留已缓存过的 Release / README 详情
+            let oldItemsMap = Dictionary(
+                uniqueKeysWithValues: (rankingCacheMap[key]?.items ?? []).map { ($0.id, $0) }
+            )
+            let mergedItems: [RankedRepository] = result.items.map { item in
+                guard let old = oldItemsMap[item.id] else { return item }
+                var updated = item
+                updated.cachedAvatarPath = item.cachedAvatarPath ?? old.cachedAvatarPath
+                updated.latestReleaseTag = old.latestReleaseTag
+                updated.latestReleaseName = old.latestReleaseName
+                updated.latestReleasePublishedAt = old.latestReleasePublishedAt
+                updated.latestReleaseBody = old.latestReleaseBody
+                updated.latestReleaseHTMLURL = old.latestReleaseHTMLURL
+                updated.readmeExcerpt = old.readmeExcerpt
+                updated.readmeFullText = old.readmeFullText
+                return updated
+            }
+
+            let entry = RankingCacheEntry(
+                key: key,
+                fetchedAt: Date(),
+                sourceLabel: result.sourceLabel,
+                items: mergedItems
+            )
+            rankingCacheMap[key] = entry
+            saveRankingCache()
+
+            if selectedRankedRepoID == nil || !mergedItems.contains(where: { $0.id == selectedRankedRepoID }) {
+                selectedRankedRepoID = mergedItems.first?.id
+            }
+
+            if showFeedback {
+                showBanner("已更新「\(board.title)」：共 \(mergedItems.count) 个上榜项目")
+            }
+
+            Task {
+                await hydrateRankedAvatarsIfNeeded(forKey: key)
+                if let current = selectedRankedRepository {
+                    await hydrateRankedRepoDetailsIfNeeded(current)
+                }
+            }
+        } catch {
+            let msg = error.localizedDescription
+            rankingErrorMessage = msg
+            showBanner("排行榜加载失败：\(msg)", isError: true)
+        }
+    }
+
+    func hydrateRankedAvatarsIfNeeded(forKey key: String) async {
+        guard let entry = rankingCacheMap[key] else { return }
+        let candidates = entry.items.filter { $0.cachedAvatarPath == nil && $0.avatarURL != nil }
+        guard !candidates.isEmpty else { return }
+
+        var changed = false
+        for repo in candidates.prefix(40) {
+            guard let urlStr = repo.avatarURL else { continue }
+            if let cachedPath = await ProjectMetadataInspector.downloadAndCacheAvatar(
+                from: urlStr,
+                provider: .github,
+                slug: repo.fullName
+            ) {
+                if var currentEntry = rankingCacheMap[key],
+                   let idx = currentEntry.items.firstIndex(where: { $0.id == repo.id }) {
+                    currentEntry.items[idx].cachedAvatarPath = cachedPath
+                    rankingCacheMap[key] = currentEntry
+                    changed = true
+                }
+            }
+        }
+        if changed {
+            saveRankingCache()
+        }
+    }
+
+    func hydrateRankedRepoDetailsIfNeeded(_ repo: RankedRepository, force: Bool = false) async {
+        if !force && repo.readmeFullText != nil {
+            return
+        }
+        guard !hydratingRankedIDs.contains(repo.id) else { return }
+        hydratingRankedIDs.insert(repo.id)
+        defer { hydratingRankedIDs.remove(repo.id) }
+
+        let token = githubStarAccounts.first(where: { !$0.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.token
+        let result = await GitHubStarService.fetchReleaseAndReadme(
+            fullName: repo.fullName,
+            defaultBranch: repo.defaultBranch,
+            token: token
+        )
+
+        var updatedAny = false
+        for key in rankingCacheMap.keys {
+            guard var entry = rankingCacheMap[key],
+                  let idx = entry.items.firstIndex(where: { $0.id == repo.id }) else {
+                continue
+            }
+            if let tag = result.latestReleaseTag {
+                entry.items[idx].latestReleaseTag = tag
+                entry.items[idx].latestReleaseName = result.latestReleaseName
+                entry.items[idx].latestReleasePublishedAt = result.latestReleasePublishedAt
+                entry.items[idx].latestReleaseBody = result.latestReleaseBody
+                entry.items[idx].latestReleaseHTMLURL = result.latestReleaseHTMLURL
+            }
+            if let full = result.readmeFullText {
+                entry.items[idx].readmeExcerpt = result.readmeExcerpt
+                entry.items[idx].readmeFullText = full
+            }
+            rankingCacheMap[key] = entry
+            updatedAny = true
+        }
+
+        if updatedAny {
+            saveRankingCache()
+        }
     }
 
     // MARK: - 辅助日志与提示

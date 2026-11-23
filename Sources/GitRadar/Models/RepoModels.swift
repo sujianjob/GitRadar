@@ -400,6 +400,121 @@ struct GitRepository: Identifiable, Hashable, Codable {
     }
 }
 
+// MARK: - GitHub 排行榜类型与筛选枚举
+enum GitHubRankingBoard: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case trending = "trending"
+    case breakout = "breakout"
+    case aiAgent = "ai_agent"
+    case allTime = "all_time"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .trending: return "Trending 趋势热榜"
+        case .breakout: return "新晋黑马榜"
+        case .aiAgent: return "AI / Agent 专题"
+        case .allTime: return "全站 Star 总榜"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .trending: return "日 / 周 / 月飙升"
+        case .breakout: return "近期新建高增长"
+        case .aiAgent: return "LLM · MCP · Skill"
+        case .allTime: return "Top 殿堂级项目"
+        }
+    }
+
+    var sfSymbol: String {
+        switch self {
+        case .trending: return "flame.fill"
+        case .breakout: return "bolt.horizontal.circle.fill"
+        case .aiAgent: return "sparkles"
+        case .allTime: return "trophy.fill"
+        }
+    }
+
+    var supportsPeriodFilter: Bool {
+        switch self {
+        case .trending, .breakout, .aiAgent:
+            return true
+        case .allTime:
+            return false
+        }
+    }
+}
+
+enum GitHubRankingPeriod: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case daily = "daily"
+    case weekly = "weekly"
+    case monthly = "monthly"
+
+    var id: String { rawValue }
+
+    func label(for board: GitHubRankingBoard) -> String {
+        switch board {
+        case .trending:
+            switch self {
+            case .daily: return "今日"
+            case .weekly: return "本周"
+            case .monthly: return "本月"
+            }
+        case .breakout:
+            switch self {
+            case .daily: return "近 7 天"
+            case .weekly: return "近 30 天"
+            case .monthly: return "近 90 天"
+            }
+        case .aiAgent:
+            switch self {
+            case .daily: return "近期新秀"
+            case .weekly: return "近期活跃"
+            case .monthly: return "AI 总榜"
+            }
+        case .allTime:
+            return "历史总榜"
+        }
+    }
+}
+
+enum GitHubRankingLanguage: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case all = ""
+    case python = "Python"
+    case typescript = "TypeScript"
+    case javascript = "JavaScript"
+    case rust = "Rust"
+    case golang = "Go"
+    case swift = "Swift"
+    case java = "Java"
+    case cpp = "C++"
+    case csharp = "C#"
+    case zig = "Zig"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        self == .all ? "全部语言" : rawValue
+    }
+
+    var trendingSlug: String? {
+        switch self {
+        case .all: return nil
+        case .python: return "python"
+        case .typescript: return "typescript"
+        case .javascript: return "javascript"
+        case .rust: return "rust"
+        case .golang: return "go"
+        case .swift: return "swift"
+        case .java: return "java"
+        case .cpp: return "c++"
+        case .csharp: return "c%23"
+        case .zig: return "zig"
+        }
+    }
+}
+
 // MARK: - 侧边栏导航过滤条件
 enum SidebarFilter: Hashable {
     case all
@@ -411,6 +526,7 @@ enum SidebarFilter: Hashable {
     case starredRecentUpdated
     case starredCloned
     case starredAccount(String)
+    case ranking(GitHubRankingBoard)
     case provider(GitProvider)
     case domain(String)
     case organization(host: String, org: String)
@@ -426,6 +542,16 @@ enum SidebarFilter: Hashable {
         }
     }
 
+    var isRankingSection: Bool {
+        if case .ranking = self { return true }
+        return false
+    }
+
+    var rankingBoard: GitHubRankingBoard? {
+        if case .ranking(let board) = self { return board }
+        return nil
+    }
+
     var title: String {
         switch self {
         case .all: return "全部仓库"
@@ -437,6 +563,7 @@ enum SidebarFilter: Hashable {
         case .starredRecentUpdated: return "近期版本更新"
         case .starredCloned: return "本机已克隆 Star"
         case .starredAccount(let username): return "@\(username) 的 Star"
+        case .ranking(let board): return board.title
         case .provider(let p): return p.rawValue
         case .domain(let host): return "域名：\(host)"
         case .organization(let host, let org): return "\(host)/\(org)"
@@ -582,6 +709,130 @@ struct StarredRepository: Identifiable, Codable, Hashable, Sendable {
         let years = days / 365
         return "\(years) 年前"
     }
+}
+
+// MARK: - GitHub 排行榜仓库模型与本地缓存包
+struct RankedRepository: Identifiable, Codable, Hashable, Sendable {
+    var id: String { fullName.lowercased() }
+    var rank: Int
+    let name: String
+    let owner: String
+    let fullName: String
+    let htmlURL: String
+    let cloneURL: String
+    let sshURL: String
+    var description: String?
+    var language: String?
+    var topics: [String]
+    var stargazersCount: Int
+    var forksCount: Int
+    var periodStarsDelta: Int?
+    var deltaBadgeText: String
+    var defaultBranch: String
+    var avatarURL: String?
+    var cachedAvatarPath: String?
+    var createdAt: Date?
+    var pushedAt: Date?
+
+    // Release 与 README 附加缓存信息
+    var latestReleaseTag: String?
+    var latestReleaseName: String?
+    var latestReleasePublishedAt: Date?
+    var latestReleaseBody: String?
+    var latestReleaseHTMLURL: String?
+    var readmeExcerpt: String?
+    var readmeFullText: String?
+
+    var techStack: ProjectTechStack {
+        let lang = (language ?? "").lowercased()
+        if lang.contains("swift") { return .swift }
+        if lang.contains("python") || lang.contains("jupyter") { return .python }
+        if lang.contains("typescript") || lang.contains("vue") || lang.contains("svelte") { return .typescript }
+        if lang.contains("javascript") { return .javascript }
+        if lang.contains("rust") { return .rust }
+        if lang.contains("go") { return .golang }
+        if lang.contains("java") || lang.contains("kotlin") || lang.contains("scala") { return .javaKotlin }
+        if lang.contains("markdown") { return .docs }
+        let topicStr = topics.joined(separator: " ").lowercased()
+        if topicStr.contains("ai") || topicStr.contains("llm") || topicStr.contains("agent") || topicStr.contains("mcp") {
+            return .aiSkill
+        }
+        return .generic
+    }
+
+    var monogram: String {
+        let separators = CharacterSet(charactersIn: "-_ .")
+        let parts = name.components(separatedBy: separators).filter { !$0.isEmpty }
+        if parts.count >= 2 {
+            let first = parts[0].prefix(1).uppercased()
+            let second = parts[1].prefix(1).uppercased()
+            return "\(first)\(second)"
+        }
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.count >= 2 {
+            return String(clean.prefix(2)).uppercased()
+        }
+        return clean.uppercased()
+    }
+
+    var formattedStars: String {
+        if stargazersCount >= 1000 {
+            return String(format: "%.1fk", Double(stargazersCount) / 1000.0)
+        }
+        return "\(stargazersCount)"
+    }
+
+    var formattedForks: String {
+        if forksCount >= 1000 {
+            return String(format: "%.1fk", Double(forksCount) / 1000.0)
+        }
+        return "\(forksCount)"
+    }
+
+    var relativePushedTime: String {
+        guard let pushed = pushedAt else { return "近期活跃" }
+        return StarredRepository.formatRelativeDate(pushed)
+    }
+
+    /// 转换为临时 StarredRepository 以便复用一键 Clone 与头像组件
+    var asStarredRepository: StarredRepository {
+        StarredRepository(
+            repoId: rank,
+            name: name,
+            owner: owner,
+            fullName: fullName,
+            htmlURL: htmlURL,
+            cloneURL: cloneURL,
+            sshURL: sshURL,
+            description: description,
+            language: language,
+            topics: topics,
+            stargazersCount: stargazersCount,
+            forksCount: forksCount,
+            openIssuesCount: 0,
+            isArchived: false,
+            defaultBranch: defaultBranch,
+            avatarURL: avatarURL,
+            cachedAvatarPath: cachedAvatarPath,
+            pushedAt: pushedAt,
+            starredAt: nil,
+            starredByAccounts: [],
+            latestReleaseTag: latestReleaseTag,
+            latestReleaseName: latestReleaseName,
+            latestReleasePublishedAt: latestReleasePublishedAt,
+            latestReleaseBody: latestReleaseBody,
+            latestReleaseHTMLURL: latestReleaseHTMLURL,
+            readmeExcerpt: readmeExcerpt,
+            readmeFullText: readmeFullText
+        )
+    }
+}
+
+struct RankingCacheEntry: Codable, Sendable {
+    let key: String
+    var fetchedAt: Date
+    var sourceLabel: String
+    var items: [RankedRepository]
 }
 
 // MARK: - 视图与排序枚举

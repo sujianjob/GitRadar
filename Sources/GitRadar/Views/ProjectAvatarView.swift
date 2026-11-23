@@ -24,6 +24,14 @@ struct ProjectAvatarView: View {
         self.size = size
     }
 
+    init(rankedRepo: RankedRepository, localIconPath: String? = nil, size: CGFloat = 36) {
+        self.name = rankedRepo.name
+        self.monogram = rankedRepo.monogram
+        self.iconPath = localIconPath ?? rankedRepo.cachedAvatarPath
+        self.techStack = rankedRepo.techStack
+        self.size = size
+    }
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             if let iconPath = iconPath,

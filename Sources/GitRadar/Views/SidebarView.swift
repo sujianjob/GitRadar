@@ -162,6 +162,49 @@ struct SidebarView: View {
                 }
             }
 
+            // MARK: 1.8 GitHub 仓库排行榜（四大热榜 + 本地与 Star 联动）
+            Section {
+                ForEach(GitHubRankingBoard.allCases) { board in
+                    sidebarRow(
+                        filter: .ranking(board),
+                        title: board.title,
+                        subtitle: board.subtitle,
+                        icon: board.sfSymbol,
+                        dotColor: nil,
+                        count: store.countForRankingBoard(board)
+                    )
+                    .contextMenu {
+                        Button {
+                            store.selectedFilter = .ranking(board)
+                            Task { await store.ensureRankingLoaded(board: board, force: true) }
+                        } label: {
+                            Label("立即刷新「\(board.title)」", systemImage: "arrow.clockwise")
+                        }
+                        Button {
+                            ExternalLauncher.openInBrowser(urlString: "https://github.com/trending")
+                        } label: {
+                            Label("在浏览器打开 GitHub Trending", systemImage: "safari")
+                        }
+                    }
+                }
+            } header: {
+                HStack(spacing: 8) {
+                    Text("GitHub 排行榜")
+                    Spacer()
+                    if store.selectedFilter.isRankingSection {
+                        Button {
+                            Task { await store.refreshCurrentRanking() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(store.isFetchingRanking)
+                        .help("刷新当前排行榜")
+                    }
+                }
+            }
+
             // MARK: 2. 托管平台
             Section("远程平台") {
                 ForEach(GitProvider.allCases) { provider in

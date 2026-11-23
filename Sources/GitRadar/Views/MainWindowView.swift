@@ -27,6 +27,18 @@ struct MainWindowView: View {
                             .frame(width: 410)
                             .frame(maxHeight: .infinity)
                         }
+                    } else if store.selectedFilter.isRankingSection {
+                        if let selectedRanked = store.selectedRankedRepository {
+                            Divider()
+                            RankedRepoDetailView(
+                                repo: selectedRanked,
+                                localRepo: store.localRepository(matching: selectedRanked),
+                                starredAccounts: store.starredAccounts(for: selectedRanked),
+                                store: store
+                            )
+                            .frame(width: 410)
+                            .frame(maxHeight: .infinity)
+                        }
                     } else if let selectedRepo = store.selectedRepository {
                         Divider()
                         RepoDetailView(repo: selectedRepo, store: store)
@@ -101,7 +113,7 @@ struct MainWindowView: View {
                 .background(AppTheme.subtleSurface)
             }
 
-            // 3. 仓库列表主体（卡片网格 or 表格视图，自动切换本地仓库与远程 Star 仓库）
+            // 3. 仓库列表主体（卡片网格 or 表格视图，自动切换本地仓库、远程 Star 仓库与 GitHub 排行榜）
             if store.selectedFilter.isStarredSection {
                 if store.filteredStarredRepositories.isEmpty {
                     starredEmptyStateView
@@ -111,6 +123,17 @@ struct MainWindowView: View {
                         starredGridRepositoriesView
                     case .table:
                         starredTableRepositoriesView
+                    }
+                }
+            } else if store.selectedFilter.isRankingSection {
+                if store.filteredRankedRepositories.isEmpty {
+                    rankingEmptyStateView
+                } else {
+                    switch store.viewMode {
+                    case .grid:
+                        rankingGridRepositoriesView
+                    case .table:
+                        rankingTableRepositoriesView
                     }
                 }
             } else {
@@ -139,9 +162,15 @@ struct MainWindowView: View {
                     Text(currentFilterTitle)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.primary)
-                    let displayCount = store.selectedFilter.isStarredSection
-                        ? store.filteredStarredRepositories.count
-                        : store.filteredRepositories.count
+                    let displayCount: Int = {
+                        if store.selectedFilter.isStarredSection {
+                            return store.filteredStarredRepositories.count
+                        } else if store.selectedFilter.isRankingSection {
+                            return store.filteredRankedRepositories.count
+                        } else {
+                            return store.filteredRepositories.count
+                        }
+                    }()
                     Text("\(displayCount)")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -155,11 +184,88 @@ struct MainWindowView: View {
                             Capsule()
                                 .stroke(AppTheme.hairlineBorder, lineWidth: 1)
                         )
+
+                    if store.selectedFilter.isRankingSection,
+                       let entry = store.currentRankingEntry {
+                        Text("· \(StarredRepository.formatRelativeDate(entry.fetchedAt))更新")
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
 
-                if store.selectedFilter.isStarredSection {
+                if let rankingBoard = store.selectedFilter.rankingBoard {
+                    // 排行榜顶部控制栏：时间范围切换 + 语言筛选 + 默认 Clone 目录 + 刷新
+                    if rankingBoard.supportsPeriodFilter {
+                        Picker("", selection: $store.rankingPeriod) {
+                            ForEach(GitHubRankingPeriod.allCases) { p in
+                                Text(p.label(for: rankingBoard)).tag(p)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .frame(width: 175)
+                        .onChange(of: store.rankingPeriod) { _, _ in
+                            Task { await store.ensureRankingLoaded(board: rankingBoard) }
+                        }
+                    }
+
+                    Picker("", selection: $store.rankingLanguage) {
+                        ForEach(GitHubRankingLanguage.allCases) { lang in
+                            Text(lang.displayName).tag(lang)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: 115)
+                    .onChange(of: store.rankingLanguage) { _, _ in
+                        Task { await store.ensureRankingLoaded(board: rankingBoard) }
+                    }
+
+                    Button {
+                        store.openSettings(tab: .githubStars)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: store.formattedDefaultCloneDirectory != nil ? "folder.fill.badge.gearshape" : "folder.badge.questionmark")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(store.formattedDefaultCloneDirectory != nil ? AppTheme.accent : Color.secondary)
+                            if let defDir = store.formattedDefaultCloneDirectory {
+                                Text("默认 Clone: \(defDir)")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .lineLimit(1)
+                            } else {
+                                Text("Clone 目录")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help("配置排行榜与远程 Star 的一键 Clone 默认保存目录")
+
+                    Button {
+                        Task { await store.refreshCurrentRanking() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 10.5))
+                            Text(store.isFetchingRanking ? "刷新中..." : "刷新榜单")
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(store.isFetchingRanking)
+                    .help("立即从 GitHub 拉取最新排行榜数据")
+                } else if store.selectedFilter.isStarredSection {
                     // 默认 Clone 目录状态按钮（点击直接打开「设置 → 远程 Star」配置或选择目录）
                     Button {
                         store.openSettings(tab: .githubStars)
@@ -346,6 +452,8 @@ struct MainWindowView: View {
             return "本机已克隆 Star"
         case .starredAccount(let username):
             return "@\(username) 的 Star"
+        case .ranking(let board):
+            return board.title
         case .provider(let provider):
             return provider.rawValue
         case .group(let groupID):
@@ -379,6 +487,8 @@ struct MainWindowView: View {
             return "checkmark.circle"
         case .starredAccount:
             return "person.crop.circle"
+        case .ranking(let board):
+            return board.sfSymbol
         case .provider(let provider):
             return provider.sfSymbol
         case .group(let groupID):
@@ -700,6 +810,240 @@ struct MainWindowView: View {
         }
     }
 
+    // MARK: - GitHub 排行榜视图模式 1：响应式卡片网格
+    private var rankingGridRepositoriesView: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 310, maximum: 460), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(store.filteredRankedRepositories) { repo in
+                    RankedRepoCardView(
+                        repo: repo,
+                        localRepo: store.localRepository(matching: repo),
+                        starredAccounts: store.starredAccounts(for: repo),
+                        isSelected: store.selectedRankedRepoID == repo.id,
+                        isCloning: store.cloningStarredIDs.contains(repo.id),
+                        store: store
+                    )
+                    .onTapGesture {
+                        store.selectedRankedRepoID = repo.id
+                        if !store.showDetailInspector {
+                            store.showDetailInspector = true
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    // MARK: - GitHub 排行榜视图模式 2：紧凑表格视图
+    private var rankingTableRepositoriesView: some View {
+        Table(store.filteredRankedRepositories, selection: $store.selectedRankedRepoID) {
+            TableColumn("排名") { repo in
+                Text("#\(repo.rank)")
+                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(repo.rank <= 3 ? AppTheme.statusDirty : .secondary)
+            }
+            .width(min: 44, ideal: 54, max: 68)
+
+            TableColumn("上榜项目") { repo in
+                let local = store.localRepository(matching: repo)
+                HStack(spacing: 8) {
+                    ProjectAvatarView(rankedRepo: repo, localIconPath: local?.projectIconPath, size: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(repo.name)
+                                .font(.system(size: 12, weight: .semibold))
+                            if let tag = repo.latestReleaseTag, !tag.isEmpty {
+                                Text(tag)
+                                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(AppTheme.statusSync)
+                            }
+                        }
+                        Text(repo.fullName)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .width(min: 180, ideal: 220)
+
+            TableColumn("热度飙升") { repo in
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(AppTheme.statusDirty)
+                    Text(repo.deltaBadgeText)
+                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(AppTheme.statusDirty)
+                        .lineLimit(1)
+                }
+            }
+            .width(min: 120, ideal: 155)
+
+            TableColumn("语言 / Star") { repo in
+                HStack(spacing: 6) {
+                    if let lang = repo.language, !lang.isEmpty {
+                        Text(lang)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    HStack(spacing: 2) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(AppTheme.statusDirty)
+                        Text(repo.formattedStars)
+                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    }
+                }
+            }
+            .width(min: 95, ideal: 120)
+
+            TableColumn("本机与收藏状态") { repo in
+                let starredAccs = store.starredAccounts(for: repo)
+                if let local = store.localRepository(matching: repo) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(AppTheme.statusClean)
+                            .frame(width: 6, height: 6)
+                        Text("已克隆")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(local.displayPath)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                } else if !starredAccs.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(AppTheme.statusDirty)
+                        Text("已收藏")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                } else {
+                    Text("未克隆")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .width(min: 105, ideal: 135)
+
+            TableColumn("项目简介") { repo in
+                Text(repo.description ?? "—")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .width(min: 150, ideal: 220)
+
+            TableColumn("操作") { repo in
+                HStack(spacing: 8) {
+                    if let local = store.localRepository(matching: repo) {
+                        Button {
+                            ExternalLauncher.openInFinder(path: local.path)
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("在 Finder 中打开本地目录")
+                    } else {
+                        Button {
+                            store.cloneRankedRepository(repo)
+                        } label: {
+                            Image(systemName: "arrow.down.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(store.cloningStarredIDs.contains(repo.id))
+                        .help("一键 Clone 到本地")
+                    }
+
+                    Button {
+                        ExternalLauncher.openInBrowser(urlString: repo.htmlURL)
+                    } label: {
+                        Image(systemName: "safari")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("打开 GitHub 主页")
+                }
+            }
+            .width(min: 65, ideal: 80)
+        }
+    }
+
+    // MARK: - GitHub 排行榜空状态 / 加载状态视图
+    private var rankingEmptyStateView: some View {
+        VStack(spacing: 12) {
+            if store.isFetchingRanking {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("正在从 GitHub 拉取「\(currentFilterTitle)」(\(store.rankingLanguage.displayName))...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if let err = store.rankingErrorMessage {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 34))
+                    .foregroundStyle(AppTheme.statusDirty)
+                Text("排行榜加载失败")
+                    .font(.headline)
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await store.refreshCurrentRanking() }
+                    } label: {
+                        Label("重试加载", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+
+                    Button {
+                        store.openSettings(tab: .githubStars)
+                    } label: {
+                        Text("配置 GitHub Token 提升配额")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.top, 4)
+            } else {
+                Image(systemName: currentFilterIcon)
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+                Text("暂无匹配的排行榜项目")
+                    .font(.subheadline.bold())
+
+                HStack(spacing: 10) {
+                    Button("立即拉取排行榜") {
+                        Task { await store.refreshCurrentRanking() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+                    .controlSize(.small)
+
+                    if store.rankingLanguage != .all || !store.searchText.isEmpty {
+                        Button("重置语言与搜索过滤") {
+                            store.rankingLanguage = .all
+                            store.searchText = ""
+                            if let board = store.selectedFilter.rankingBoard {
+                                Task { await store.ensureRankingLoaded(board: board) }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
+    }
+
     // MARK: - 远程 Star 空状态引导视图
     private var starredEmptyStateView: some View {
         VStack(spacing: 12) {
@@ -825,6 +1169,8 @@ struct MainWindowView: View {
                 Task {
                     if store.selectedFilter.isStarredSection {
                         await store.syncAllGitHubStars()
+                    } else if store.selectedFilter.isRankingSection {
+                        await store.refreshCurrentRanking()
                     } else {
                         await store.scanAndRefreshAll()
                     }
@@ -832,8 +1178,8 @@ struct MainWindowView: View {
             } label: {
                 Label("刷新", systemImage: "arrow.clockwise")
             }
-            .help("重新扫描本地仓库或同步远程 Star (⌘R)")
-            .disabled(store.isScanning || store.isSyncingStars)
+            .help("重新扫描本地仓库、同步远程 Star 或刷新排行榜 (⌘R)")
+            .disabled(store.isScanning || store.isSyncingStars || store.isFetchingRanking)
 
             Picker("视图", selection: $store.viewMode) {
                 ForEach(DashboardViewMode.allCases, id: \.self) { mode in
